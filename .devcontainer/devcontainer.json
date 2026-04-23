@@ -1,0 +1,37 @@
+{
+  "name": "AutoBee ROS2 Humble",
+  "build": {
+    "context": "..",
+    "dockerfile": "../Dockerfile"
+  },
+  "runArgs": [
+    "--network=host",
+    "--ipc=host",
+    "--privileged",
+    "--env=DISPLAY=${localEnv:DISPLAY}",
+    "--env=QT_X11_NO_MITSHM=1",
+    "--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw"
+  ],
+  "workspaceFolder": "/root/autobee_ws",
+  "workspaceMount": "source=${localWorkspaceFolder}/workspace,target=/root/autobee_ws,type=bind",
+  "mounts": [
+    "source=${localWorkspaceFolder}/scripts,target=/root/scripts,type=bind,readonly"
+  ],
+  "remoteUser": "root",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-iot.vscode-ros",
+        "ms-vscode.cpptools",
+        "redhat.vscode-yaml",
+        "twxs.cmake"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "python.defaultInterpreterPath": "/usr/bin/python3"
+      }
+    }
+  },
+  "postCreateCommand": "echo 'Container ready. Next: run /root/scripts/build_orbslam3.sh'"
+}

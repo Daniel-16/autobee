@@ -1,0 +1,8 @@
+workspace/build/
+workspace/install/
+workspace/log/
+*.pyc
+__pycache__/
+.vscode/
+.idea/
+*.pt

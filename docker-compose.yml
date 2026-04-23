@@ -1,0 +1,25 @@
+services:
+  autobee:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autobee:humble
+    container_name: autobee_dev
+    network_mode: host
+    ipc: host
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - XAUTHORITY=/tmp/.docker.xauth
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /tmp/.docker.xauth:/tmp/.docker.xauth:rw
+      - ./workspace:/root/autobee_ws
+      - ./scripts:/root/scripts:ro
+      - ~/.gitconfig:/root/.gitconfig:ro
+    stdin_open: true
+    tty: true
+    command: /bin/bash

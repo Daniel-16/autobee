@@ -1,0 +1,7 @@
+.git
+.gitignore
+.claude
+workspace/build
+workspace/install
+workspace/log
+*.md
