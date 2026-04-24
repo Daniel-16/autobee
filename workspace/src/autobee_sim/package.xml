@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>autobee_sim</name>
+  <version>0.1.0</version>
+  <description>AutoBee Gazebo Fortress simulation: campus world, drone model, ros_gz bridge.</description>
+  <maintainer email="danieloloruntoba681@gmail.com">Daniel Oloruntoba</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_image</exec_depend>
+  <exec_depend>teleop_twist_keyboard</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

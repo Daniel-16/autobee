@@ -1,0 +1,140 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="campus">
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <gravity>0 0 -9.81</gravity>
+
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.5 0.7 0.9 1</background>
+      <grid>false</grid>
+    </scene>
+
+    <light type="directional" name="sun">
+      <pose>0 0 30 0 0 0</pose>
+      <cast_shadows>true</cast_shadows>
+      <diffuse>0.9 0.9 0.85 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.3 0.2 -0.9</direction>
+    </light>
+
+    <model name="ground">
+      <static>true</static>
+      <link name="ground_link">
+        <collision name="ground_collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>200 200</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="ground_visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>200 200</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.35 0.4 0.32 1</ambient>
+            <diffuse>0.5 0.55 0.45 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="landmark_main_gate">
+      <static>true</static>
+      <pose>-20 0 2 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>4 10 4</size></box></geometry>
+          <material><diffuse>0.8 0.75 0.6 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>4 10 4</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <model name="landmark_library">
+      <static>true</static>
+      <pose>10 15 4 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>12 8 8</size></box></geometry>
+          <material><diffuse>0.7 0.4 0.3 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>12 8 8</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <model name="landmark_convocation_ground">
+      <static>true</static>
+      <pose>15 -15 0.1 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>20 20 0.2</size></box></geometry>
+          <material><diffuse>0.85 0.8 0.7 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>20 20 0.2</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <model name="landmark_admin">
+      <static>true</static>
+      <pose>-10 -18 3 0 0 0</pose>
+      <link name="link">
+        <visual name="v"><geometry><box><size>10 6 6</size></box></geometry>
+          <material><diffuse>0.6 0.6 0.7 1</diffuse></material></visual>
+        <collision name="c"><geometry><box><size>10 6 6</size></box></geometry></collision>
+      </link>
+    </model>
+
+    <!-- 10 pedestrian stand-ins: person-sized boxes at convocation ground.
+         TODO: upgrade to animated <actor> meshes once Fuel cache is populated
+         (see ~/.ignition/fuel/ — pre-download the Casual female model offline). -->
+    <model name="ped_1"><static>true</static><pose>12 -12 0.85 0 0 0</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.8 0.3 0.25 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <model name="ped_2"><static>true</static><pose>16 -10 0.85 0 0 1.57</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.3 0.5 0.8 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <model name="ped_3"><static>true</static><pose>18 -15 0.85 0 0 0</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.2 0.7 0.3 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <model name="ped_4"><static>true</static><pose>10 -18 0.85 0 0 0.5</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.9 0.7 0.1 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <model name="ped_5"><static>true</static><pose>14 -8 0.85 0 0 -1.0</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.6 0.2 0.7 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <model name="ped_6"><static>true</static><pose>5 5 0.85 0 0 2.0</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.5 0.3 0.2 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <model name="ped_7"><static>true</static><pose>-5 8 0.85 0 0 -0.8</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.1 0.4 0.9 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <model name="ped_8"><static>true</static><pose>-8 -5 0.85 0 0 1.2</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.7 0.7 0.2 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <model name="ped_9"><static>true</static><pose>22 -5 0.85 0 0 0</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.4 0.6 0.6 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <model name="ped_10"><static>true</static><pose>0 -10 0.85 0 0 -2.3</pose><link name="l">
+      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
+        <material><diffuse>0.85 0.4 0.1 1</diffuse></material></visual>
+      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+
+  </world>
+</sdf>

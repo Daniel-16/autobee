@@ -10,8 +10,7 @@
     "--privileged",
     "--env=DISPLAY=${localEnv:DISPLAY}",
     "--env=QT_X11_NO_MITSHM=1",
-    "--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw",
-    "--name=autobee_dev"
+    "--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw"
   ],
   "workspaceFolder": "/workspaces/AUTOBEE",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/AUTOBEE,type=bind",
@@ -34,5 +33,5 @@
       }
     }
   },
-  "postCreateCommand": "echo 'Container ready. Next: run /root/scripts/build_orbslam3.sh'"
+  "postCreateCommand": "bash -lc 'cd /root/autobee_ws && colcon build --packages-select autobee_sim && echo \"Container ready. If first time: run /workspaces/AUTOBEE/scripts/build_orbslam3.sh\"'"
 }

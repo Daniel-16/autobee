@@ -33,7 +33,8 @@
       "Bash(docker run *)",
       "Bash(docker exec autobee_dev *)",
       "Bash(docker start *)",
-      "Bash(docker exec *)"
+      "Bash(docker exec *)",
+      "Bash(git push *)"
     ]
   }
 }
