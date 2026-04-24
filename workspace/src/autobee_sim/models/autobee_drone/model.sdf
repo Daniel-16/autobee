@@ -91,7 +91,6 @@
     <plugin
       filename="gz-sim-velocity-control-system"
       name="gz::sim::systems::VelocityControl">
-      <topic>cmd_vel</topic>
     </plugin>
 
     <plugin

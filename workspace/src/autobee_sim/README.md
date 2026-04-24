@@ -4,7 +4,7 @@ Phase 2 simulation package for AutoBee: campus world + drone model + ros_gz brid
 
 ## Contents
 
-- `worlds/campus.sdf` — campus world with ground, 4 building landmarks, 10 pedestrian stand-ins.
+- `worlds/campus.sdf` — campus world with ground, 8 building landmarks (main gate, library, convocation ground, admin, lecture hall, chapel, hostel, dining hall), 6 trees, 4 benches, 3 lamp posts, walkway strips, and 10 pedestrian stand-ins.
 - `models/autobee_drone/` — quadrotor-shaped single-body drone with a 640x480 / 30 Hz / 90° FOV forward camera, IMU, and a `VelocityControl` plugin (takes `Twist` directly, no flight physics).
 - `config/bridge.yaml` — ros_gz_bridge topic mappings.
 - `launch/sim.launch.py` — brings up Gazebo + spawns drone + starts bridge.
