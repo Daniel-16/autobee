@@ -10,12 +10,13 @@
     "--privileged",
     "--env=DISPLAY=${localEnv:DISPLAY}",
     "--env=QT_X11_NO_MITSHM=1",
-    "--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw"
+    "--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw",
+    "--name=autobee_dev"
   ],
-  "workspaceFolder": "/root/autobee_ws",
-  "workspaceMount": "source=${localWorkspaceFolder}/workspace,target=/root/autobee_ws,type=bind",
+  "workspaceFolder": "/workspaces/AUTOBEE",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/AUTOBEE,type=bind",
   "mounts": [
-    "source=${localWorkspaceFolder}/scripts,target=/root/scripts,type=bind,readonly"
+    "source=${localWorkspaceFolder}/workspace,target=/root/autobee_ws,type=bind"
   ],
   "remoteUser": "root",
   "customizations": {

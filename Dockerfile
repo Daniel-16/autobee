@@ -1,27 +1,41 @@
-FROM osrf/ros:humble-desktop-full
+FROM ros:humble-ros-base
 
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake git wget curl ca-certificates \
     python3-pip python3-colcon-common-extensions python3-rosdep python3-vcstool \
+    ros-humble-rviz2 \
+    ros-humble-rqt-image-view \
     ros-humble-ros-gz \
     ros-humble-navigation2 ros-humble-nav2-bringup \
     ros-humble-vision-msgs ros-humble-tf2-ros ros-humble-robot-localization \
     ros-humble-teleop-twist-keyboard \
+    ros-humble-xacro ros-humble-robot-state-publisher \
     libopencv-dev libeigen3-dev libglew-dev libssl-dev \
     libboost-all-dev libgl1-mesa-dev libglu1-mesa-dev \
     x11-apps mesa-utils \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir \
-    ultralytics \
-    langchain \
-    langchain-google-genai \
-    google-generativeai \
-    opencv-python-headless \
-    numpy scipy \
-    transforms3d
+RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
+    numpy scipy transforms3d
+
+RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
+    opencv-python-headless
+
+RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch torchvision
+
+RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
+    ultralytics
+
+RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
+    langchain langchain-google-genai google-generativeai
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libepoxy-dev libwayland-dev libxkbcommon-dev \
+ && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/autobee/third_party && cd /opt/autobee/third_party \
  && git clone --recursive https://github.com/stevenlovegrove/Pangolin.git \

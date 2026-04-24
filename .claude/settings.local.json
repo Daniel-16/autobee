@@ -15,7 +15,25 @@
       "Bash(apt-cache search *)",
       "Bash(sudo apt *)",
       "Bash(chmod +x *)",
-      "Bash(docker build *)"
+      "Bash(docker build *)",
+      "Bash(docker system *)",
+      "Read(//home/daniel-toba/.config/Code/logs/20260423T133942/window1/exthost/**)",
+      "Bash(ps -o pid,etime,time,rss,cmd -p 814700)",
+      "Bash(ps aux *)",
+      "Bash(docker builder *)",
+      "Bash(sudo -n journalctl -u docker --since \"20 min ago\")",
+      "Bash(kill -9 814700)",
+      "Bash(docker pull *)",
+      "Bash(ps -o pid,etime,time,%cpu,cmd -p 827058)",
+      "Bash(kill 827058 827056)",
+      "Bash(ps -o pid,etime,cmd -p 845727)",
+      "Bash(ps *)",
+      "Bash(kill 845953 845955)",
+      "Bash(kill 847230 847232)",
+      "Bash(docker run *)",
+      "Bash(docker exec autobee_dev *)",
+      "Bash(docker start *)",
+      "Bash(docker exec *)"
     ]
   }
 }
