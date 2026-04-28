@@ -34,7 +34,8 @@
       "Bash(docker exec autobee_dev *)",
       "Bash(docker start *)",
       "Bash(docker exec *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "mcp__claude_ai_Google_Drive__read_file_content"
     ]
   }
 }

@@ -709,7 +709,7 @@ The cognitive layer translates natural language intent from the security operato
 
 ### Campus Ontology
 
-The ontology is a JSON file that maps natural language place names to physical simulation coordinates. This is the LLM's grounding mechanism — without it, commands like "go to the library" are meaningless to a navigation stack.
+The ontology is a JSON file that maps natural language place names to physical simulation coordinates. This is one of two grounding mechanisms the LLM uses; the other is the special `takeoff_pose` reference (see below) for commands that don't name a specific landmark.
 
 ```json
 {
@@ -729,6 +729,10 @@ The ontology is a JSON file that maps natural language place names to physical s
   }
 }
 ```
+
+#### Reserved Reference: `takeoff_pose`
+
+Not every command names a specific landmark. Phrases like *"is this place overcrowded?"*, *"scan around me"*, or *"check this area"* refer to the drone's **current/launch position**, not a pre-mapped location. To support these, the ontology reserves a special location name `takeoff_pose` that resolves at runtime to the SLAM pose recorded at arming time. This is what makes the system deployable at venues that have not been pre-mapped — including demo day. The `takeoff_pose` reference is the default `center` when a `survey_local_area` action does not specify one.
 
 ### System Prompt Engineering (LangChain)
 
@@ -753,12 +757,28 @@ OUTPUT SCHEMA:
   "mission_id": "<uuid>",
   "original_command": "<user's text>",
   "actions": [
+    // Action type 1 — navigate to a named landmark from the ontology.
+    // Use when the user references a specific place (e.g. "the convocation ground").
     {
       "type": "navigate_to_pose",
       "target_location": "<location_name>",
       "coordinates": {"x": float, "y": float, "z": float},
       "altitude_m": float,
       "task": "survey | monitor | hover"
+    },
+    // Action type 2 — survey a circular area around a reference pose.
+    // Use when the user does NOT name a specific landmark
+    // (e.g. "is this place overcrowded?", "scan around me", "check this area").
+    // If "center" is omitted or set to "takeoff_pose", the survey is centered
+    // on the drone's launch position.
+    {
+      "type": "survey_local_area",
+      "center": "takeoff_pose | <location_name>",
+      "radius_m": float,            // default 20.0
+      "altitude_m": float,          // default 8.0
+      "pattern": "spiral | orbit | lawnmower",   // default "spiral"
+      "duration_s": int,            // default 90
+      "alert_threshold": {"crowd_density": float}  // default 2.0 p/m²
     }
   ],
   "perception_tasks": ["crowd_count", "anomaly_detect"],
@@ -771,6 +791,10 @@ CAMPUS ONTOLOGY:
 ```
 
 ### Command Processing Pipeline
+
+The agent supports two command shapes, matching the two action types in the schema above. Both run through the same LangChain + Gemini pipeline; only the resulting plan differs.
+
+#### Example A — Place-Based Command (uses Campus Ontology)
 
 ```
 User Command: "Scan the convocation ground for overcrowding"
@@ -810,6 +834,52 @@ Mission Plan JSON:
 [ Mission Executor Node ] → Publishes to Nav2 NavigateToPose Action Server
 ```
 
+#### Example B — Local-Area Command (uses `takeoff_pose`)
+
+This is the **demo-day path.** The user references "this place" rather than a named landmark, so the LLM emits a `survey_local_area` action centered on the drone's launch position. No pre-mapped landmark is required, which makes the system deployable at any venue.
+
+```
+User Command: "Let me know if this place is overcrowded"
+      |
+      ▼
+[ LangChain + Gemini Pro ]
+  - Recognizes "this place" → no ontology lookup needed
+  - Recognizes "overcrowded" → set crowd_density alert threshold
+  - Fills missing parameters with safe defaults
+      |
+      ▼
+Mission Plan JSON:
+{
+  "mission_id": "m-002",
+  "original_command": "Let me know if this place is overcrowded",
+  "actions": [
+    {
+      "type": "survey_local_area",
+      "center": "takeoff_pose",
+      "radius_m": 20.0,
+      "altitude_m": 8.0,
+      "pattern": "spiral",
+      "duration_s": 90,
+      "alert_threshold": {"crowd_density": 2.0}
+    }
+  ],
+  "perception_tasks": ["crowd_count", "anomaly_detect"],
+  "priority": "normal"
+}
+      |
+      ▼
+[ Mission Executor Node ]
+  1. Snapshots /slam/pose at arm time → resolves "takeoff_pose"
+  2. Generates a spiral of waypoints within 20m of that pose at 8m altitude
+  3. Configures yolov8_perception_node: crowd_density_threshold=2.0
+  4. Issues each waypoint as a Nav2 NavigateToPose goal in sequence
+  5. On /perception/anomaly_alert, captures snapshot + bearing relative to takeoff_pose,
+     forwards to llm_agent_node for natural-language report synthesis
+  6. On duration_s expiry or operator cancel, returns to takeoff_pose and lands
+```
+
+This second path is what enables the demo-day scenario T-09 (Section 11) and supports FR-13.
+
 ### Latency Mitigation
 
 Per the empirical findings of Pollini et al. (2025), cloud LLM API calls can exceed 1 second of latency. The following strategies are applied:
@@ -823,8 +893,10 @@ Per the empirical findings of Pollini et al. (2025), cloud LLM API calls can exc
 
 - [ ] `llm_agent_node` publishes a valid JSON mission plan within 5 seconds for any of 20 test commands
 - [ ] Campus ontology correctly resolves all 6 defined locations
+- [ ] `takeoff_pose` reference resolves correctly at runtime to the current SLAM pose at arm time
+- [ ] LLM correctly emits `survey_local_area` (not `navigate_to_pose`) for at least 5 phrasing variants of local-area commands ("is this place overcrowded", "scan around me", "check this area for crowds", "watch here for big groups", "tell me if it gets busy here")
 - [ ] Invalid/ambiguous commands produce a graceful fallback, not a crash
-- [ ] `Task Success Rate (TSR)` ≥ 80% on the 20-command test suite
+- [ ] `Task Success Rate (TSR)` ≥ 80% on the 20-command test suite (mix of place-based and local-area commands)
 - [ ] No LLM-generated command bypasses the safety watchdog
 
 ---
@@ -903,6 +975,7 @@ The following scenarios must all pass in simulation before Phase 7 is unlocked:
 | T-06 | Simulate node failure (kill perception node mid-flight) | Watchdog triggers SAFE\_LAND | Drone lands safely within 5s of failure |
 | T-07 | Spawn 20 actors in convocation ground | Crowd density alert published | Alert fired with density > 2.0 p/m² |
 | T-08 | Navigate 50m corridor (indoor, no GPS) | ORB-SLAM3 maintains localization | ATE < 0.5m at goal |
+| T-09 | "Let me know if this place is overcrowded" (local-area survey, no named landmark) | Drone arms, snapshots takeoff_pose, flies a 20m-radius spiral at 8m altitude, runs perception, fires anomaly alert when an actor cluster crosses 2.0 p/m², returns to takeoff_pose and lands. LLM synthesizes a natural-language report including bearing/distance from takeoff_pose. | TSR=Pass; alert fired with density >2.0 within mission duration; drone returns to within 0.5m of takeoff_pose; report mentions an approximate location and count. **This is the demo-day acceptance test.** |
 
 ### Evaluation Data Collection
 
@@ -973,6 +1046,7 @@ Real-world testing must be incremental — never jump to full autonomy on first 
 | FR-10 | Could Have | Voice Feedback | Drone speaks mission status updates back to operator |
 | FR-11 | Won't Have | Facial Recognition | Explicitly excluded for privacy compliance |
 | FR-12 | Won't Have | Multi-drone Swarm | Deferred to future work |
+| FR-13 | Must Have | Local-Area Survey Mode | The system must support commands that reference the drone's current position rather than a pre-mapped landmark (e.g. "is this place overcrowded?", "scan around me"). On such commands, the LLM emits a `survey_local_area` action centered on `takeoff_pose`, and the mission executor flies a configurable-radius pattern (default 20 m, spiral, 8 m altitude) while running perception. This is the deployment path for venues that have not been pre-mapped, including demo-day. |
 
 ---
 
@@ -1085,7 +1159,8 @@ autobee_ws/
 └── src/
     ├── autobee_core/              # Core system nodes
     │   ├── autobee_core/
-    │   │   ├── mission_executor_node.py
+    │   │   ├── mission_executor_node.py     # consumes mission plan JSON; dispatches navigate_to_pose and survey_local_area
+    │   │   ├── survey_pattern_generator.py  # spiral / orbit / lawnmower waypoint generators around a center pose
     │   │   ├── safety_watchdog_node.py
     │   │   └── __init__.py
     │   ├── config/

@@ -1,9 +1,6 @@
 {
   "name": "AutoBee ROS2 Humble",
-  "build": {
-    "context": "..",
-    "dockerfile": "../Dockerfile"
-  },
+  "image": "autobee:humble",
   "runArgs": [
     "--network=host",
     "--ipc=host",

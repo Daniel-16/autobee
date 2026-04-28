@@ -49,6 +49,9 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        stop = Twist()
+        for _ in range(5):
+            node.pub.publish(stop)
         node.destroy_node()
         rclpy.shutdown()
 
