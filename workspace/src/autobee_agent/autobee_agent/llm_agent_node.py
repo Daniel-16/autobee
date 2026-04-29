@@ -18,6 +18,12 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
+try:
+    from dotenv import find_dotenv, load_dotenv
+    load_dotenv(find_dotenv(usecwd=True), override=False)
+except ImportError:
+    pass
+
 
 SYSTEM_PROMPT = """You are AutoBee's mission planner. AutoBee is an autonomous surveillance drone for a university campus. You convert a non-pilot user's natural-language request into ONE valid JSON mission command.
 
