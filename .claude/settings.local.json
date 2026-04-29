@@ -35,7 +35,11 @@
       "Bash(docker start *)",
       "Bash(docker exec *)",
       "Bash(git push *)",
-      "mcp__claude_ai_Google_Drive__read_file_content"
+      "mcp__claude_ai_Google_Drive__read_file_content",
+      "Read(//root/autobee_ws/install/autobee_core/share/autobee_core/launch/**)",
+      "Read(//root/**)",
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(git *)"
     ]
   }
 }

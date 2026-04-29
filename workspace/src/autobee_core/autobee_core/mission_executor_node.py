@@ -1,21 +1,28 @@
-"""Mission executor — flies a survey pattern using ground-truth /drone/pose feedback.
+"""Mission executor — open-loop timed survey, command-driven.
 
-State machine:
-    INIT     wait for first pose, snapshot takeoff_pose, generate waypoints
-    CLIMB    rise straight up to cruise_altitude_m
-    SURVEY   visit each waypoint via yaw+forward control
-    RETURN   fly back to takeoff XY at cruise altitude
-    DESCEND  drop straight down to takeoff Z
+Waits on /mission_command (std_msgs/String JSON) before flying. The LLM agent
+publishes the JSON; this node parses it, pre-computes a timed twist schedule
+from the spiral/orbit waypoints, and plays it back on /drone/cmd_vel.
+
+Pose feedback through ros_gz_bridge is unreliable in this Fortress build, so
+the executor runs open-loop. Demo-grade: no closed-loop correction. Trades
+drift for reliability.
+
+Schedule phases:
+    CLIMB    rise at max_z_speed for cruise_altitude / max_z_speed seconds
+    SETTLE   short pause at cruise altitude
+    SURVEY   for each waypoint segment: yaw to target heading, then drive forward
+    DESCEND  drop at max_z_speed back to ground
     DONE     publish zero Twist forever
-
-Hardcoded survey_local_area mission for now; LLM agent will emit this JSON later.
 """
 
+import json
 import math
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, PoseStamped
+from geometry_msgs.msg import Twist
+from std_msgs.msg import String
 
 from autobee_core.survey_pattern_generator import generate
 
@@ -24,144 +31,148 @@ class MissionExecutorNode(Node):
     def __init__(self):
         super().__init__("mission_executor_node")
 
-        self.declare_parameter("cruise_altitude_m", 12.0)
-        self.declare_parameter("survey_radius_m", 20.0)
-        self.declare_parameter("survey_pattern", "spiral")
-        self.declare_parameter("waypoint_tolerance_m", 1.5)
-        self.declare_parameter("max_xy_speed", 2.5)
+        self.declare_parameter("default_cruise_altitude_m", 30.0)
+        self.declare_parameter("default_survey_radius_m", 15.0)
+        self.declare_parameter("default_survey_pattern", "spiral")
+        self.declare_parameter("max_xy_speed", 2.0)
         self.declare_parameter("max_z_speed", 1.5)
         self.declare_parameter("max_yaw_rate", 0.8)
+        self.declare_parameter("settle_time_s", 1.0)
+        self.declare_parameter("autostart_mission", "")
 
-        self.cruise_altitude = float(self.get_parameter("cruise_altitude_m").value)
-        self.survey_radius = float(self.get_parameter("survey_radius_m").value)
-        self.survey_pattern = str(self.get_parameter("survey_pattern").value)
-        self.waypoint_tol = float(self.get_parameter("waypoint_tolerance_m").value)
         self.max_xy_speed = float(self.get_parameter("max_xy_speed").value)
         self.max_z_speed = float(self.get_parameter("max_z_speed").value)
         self.max_yaw_rate = float(self.get_parameter("max_yaw_rate").value)
-
-        self.kp_xy = 0.7
-        self.kp_z = 1.0
-        self.kp_yaw = 1.5
-
-        self.state = "INIT"
-        self.takeoff_pose = None
-        self.current_pose = None
-        self.current_yaw = 0.0
-        self.waypoints = []
-        self.wp_idx = 0
+        self.settle_time = float(self.get_parameter("settle_time_s").value)
 
         self.cmd_pub = self.create_publisher(Twist, "/drone/cmd_vel", 10)
-        self.create_subscription(PoseStamped, "/drone/pose", self._on_pose, 10)
+        self.create_subscription(String, "/mission_command", self._on_command, 10)
         self.create_timer(0.05, self._tick)
 
+        self.schedule = None
+        self.start_time = None
+        self._last_phase = None
+
         self.get_logger().info(
-            f"mission_executor up: cruise={self.cruise_altitude}m "
-            f"radius={self.survey_radius}m pattern={self.survey_pattern}"
+            "mission_executor up (open-loop, command-driven); "
+            "waiting for JSON on /mission_command"
         )
 
-    def _on_pose(self, msg: PoseStamped):
-        self.current_pose = (
-            msg.pose.position.x,
-            msg.pose.position.y,
-            msg.pose.position.z,
+        autostart = str(self.get_parameter("autostart_mission").value).strip()
+        if autostart:
+            self.get_logger().info(f"autostart_mission set; running {autostart!r}")
+            self._start_mission_from_json(autostart)
+
+    def _on_command(self, msg: String):
+        if self.schedule is not None:
+            self.get_logger().warn("mission already in progress; ignoring new command")
+            return
+        self._start_mission_from_json(msg.data)
+
+    def _start_mission_from_json(self, raw):
+        try:
+            command = json.loads(raw)
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f"invalid JSON on /mission_command: {e}")
+            return
+
+        if command.get("action") != "survey_local_area":
+            self.get_logger().error(f"unsupported action: {command.get('action')!r}")
+            return
+
+        cruise = float(command.get(
+            "altitude_m", self.get_parameter("default_cruise_altitude_m").value))
+        radius = float(command.get(
+            "radius_m", self.get_parameter("default_survey_radius_m").value))
+        pattern = str(command.get(
+            "pattern", self.get_parameter("default_survey_pattern").value))
+        intent = str(command.get("intent", ""))
+
+        self.cruise_altitude = cruise
+        self.survey_radius = radius
+        self.survey_pattern = pattern
+
+        self.schedule, total = self._build_schedule()
+        self.start_time = self.get_clock().now()
+
+        self.get_logger().info(
+            f"executing: pattern={pattern} radius={radius}m altitude={cruise}m "
+            f"duration={total:.1f}s intent={intent!r}"
         )
-        q = msg.pose.orientation
-        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
-        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        self.current_yaw = math.atan2(siny_cosp, cosy_cosp)
+
+    def _build_schedule(self):
+        events = []
+        t = 0.0
+
+        climb_dur = self.cruise_altitude / self.max_z_speed
+        cmd = Twist()
+        cmd.linear.z = self.max_z_speed
+        events.append((t, t + climb_dur, cmd, "CLIMB"))
+        t += climb_dur
+
+        events.append((t, t + self.settle_time, Twist(), "SETTLE"))
+        t += self.settle_time
+
+        waypoints = generate(
+            self.survey_pattern,
+            (0.0, 0.0),
+            self.survey_radius,
+            self.cruise_altitude,
+        )
+
+        prev_x, prev_y = 0.0, 0.0
+        prev_heading = 0.0
+
+        for i, (wx, wy, _wz) in enumerate(waypoints):
+            dx = wx - prev_x
+            dy = wy - prev_y
+            distance = math.hypot(dx, dy)
+            if distance < 1e-3:
+                continue
+
+            target_heading = math.atan2(dy, dx)
+            heading_diff = self._wrap(target_heading - prev_heading)
+
+            yaw_dur = abs(heading_diff) / self.max_yaw_rate
+            if yaw_dur > 0.05:
+                yaw_cmd = Twist()
+                yaw_cmd.angular.z = self.max_yaw_rate * (1.0 if heading_diff > 0 else -1.0)
+                events.append((t, t + yaw_dur, yaw_cmd, f"YAW->{i}"))
+                t += yaw_dur
+
+            fwd_dur = distance / self.max_xy_speed
+            fwd_cmd = Twist()
+            fwd_cmd.linear.x = self.max_xy_speed
+            events.append((t, t + fwd_dur, fwd_cmd, f"FWD->{i}"))
+            t += fwd_dur
+
+            prev_x, prev_y, prev_heading = wx, wy, target_heading
+
+        events.append((t, t + self.settle_time, Twist(), "PRE_DESCEND"))
+        t += self.settle_time
+
+        descend_dur = self.cruise_altitude / self.max_z_speed
+        descend_cmd = Twist()
+        descend_cmd.linear.z = -self.max_z_speed
+        events.append((t, t + descend_dur, descend_cmd, "DESCEND"))
+        t += descend_dur
+
+        events.append((t, float("inf"), Twist(), "DONE"))
+
+        return events, t
 
     def _tick(self):
-        if self.current_pose is None:
+        if self.schedule is None:
             return
-
-        if self.state == "INIT":
-            self.takeoff_pose = self.current_pose
-            self.waypoints = generate(
-                self.survey_pattern,
-                (self.takeoff_pose[0], self.takeoff_pose[1]),
-                self.survey_radius,
-                self.cruise_altitude,
-            )
-            self.wp_idx = 0
-            self.state = "CLIMB"
-            self.get_logger().info(
-                f"takeoff_pose snapshot: ({self.takeoff_pose[0]:.2f}, "
-                f"{self.takeoff_pose[1]:.2f}, {self.takeoff_pose[2]:.2f}); "
-                f"{len(self.waypoints)} waypoints generated; climbing to {self.cruise_altitude}m"
-            )
-            return
-
-        if self.state == "CLIMB":
-            cmd = Twist()
-            cmd.linear.z = self.max_z_speed
-            self.cmd_pub.publish(cmd)
-            if self.current_pose[2] >= self.cruise_altitude - 0.3:
-                self.state = "SURVEY"
-                self.get_logger().info("reached cruise altitude; starting survey")
-            return
-
-        if self.state == "SURVEY":
-            target = self.waypoints[self.wp_idx]
-            self._fly_to(target)
-            if self._xy_distance_to(target) < self.waypoint_tol:
-                self.wp_idx += 1
-                if self.wp_idx >= len(self.waypoints):
-                    self.state = "RETURN"
-                    self.get_logger().info("survey complete; returning home")
-                else:
-                    self.get_logger().info(
-                        f"waypoint {self.wp_idx}/{len(self.waypoints)} reached"
-                    )
-            return
-
-        if self.state == "RETURN":
-            target = (self.takeoff_pose[0], self.takeoff_pose[1], self.cruise_altitude)
-            self._fly_to(target)
-            if self._xy_distance_to(target) < self.waypoint_tol:
-                self.state = "DESCEND"
-                self.get_logger().info("over takeoff_pose; descending")
-            return
-
-        if self.state == "DESCEND":
-            cmd = Twist()
-            cmd.linear.z = -0.5
-            self.cmd_pub.publish(cmd)
-            if self.current_pose[2] <= self.takeoff_pose[2] + 0.2:
-                self.state = "DONE"
-                self.get_logger().info("mission complete; holding zero velocity")
-            return
-
-        if self.state == "DONE":
-            self.cmd_pub.publish(Twist())
-            return
-
-    def _fly_to(self, target):
-        cx, cy, cz = self.current_pose
-        tx, ty, tz = target
-        dx, dy, dz = tx - cx, ty - cy, tz - cz
-        dist_xy = math.hypot(dx, dy)
-
-        heading_to_target = math.atan2(dy, dx)
-        heading_err = self._wrap(heading_to_target - self.current_yaw)
-        yaw_rate = self._clamp(
-            heading_err * self.kp_yaw, -self.max_yaw_rate, self.max_yaw_rate
-        )
-
-        align = max(math.cos(heading_err), 0.0)
-        fwd = self._clamp(dist_xy * self.kp_xy * align, 0.0, self.max_xy_speed)
-        vz = self._clamp(dz * self.kp_z, -self.max_z_speed, self.max_z_speed)
-
-        cmd = Twist()
-        cmd.linear.x = fwd
-        cmd.linear.z = vz
-        cmd.angular.z = yaw_rate
-        self.cmd_pub.publish(cmd)
-
-    def _xy_distance_to(self, target):
-        cx, cy, _ = self.current_pose
-        tx, ty, _ = target
-        return math.hypot(tx - cx, ty - cy)
+        elapsed = (self.get_clock().now() - self.start_time).nanoseconds / 1e9
+        for (t_start, t_end, cmd, label) in self.schedule:
+            if t_start <= elapsed < t_end:
+                self.cmd_pub.publish(cmd)
+                if label != self._last_phase and not label.startswith(("YAW", "FWD")):
+                    self.get_logger().info(f"phase: {label} (t={elapsed:.1f}s)")
+                    self._last_phase = label
+                return
+        self.cmd_pub.publish(Twist())
 
     @staticmethod
     def _wrap(angle):
@@ -170,10 +181,6 @@ class MissionExecutorNode(Node):
         while angle < -math.pi:
             angle += 2.0 * math.pi
         return angle
-
-    @staticmethod
-    def _clamp(v, lo, hi):
-        return max(lo, min(hi, v))
 
 
 def main(args=None):

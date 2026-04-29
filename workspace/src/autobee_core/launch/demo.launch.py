@@ -1,6 +1,11 @@
-"""Bring up the campus sim and the mission executor in one shot.
+"""Bring up the campus sim, the LLM agent, and the mission executor in one shot.
 
-Usage:  ros2 launch autobee_core demo.launch.py
+Usage:
+    ros2 launch autobee_core demo.launch.py
+
+Then in another terminal, send a natural-language command:
+    ros2 topic pub --once /user_intent std_msgs/String \
+        "data: 'check if the field is overcrowded'"
 """
 
 import os
@@ -21,7 +26,12 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(sim_launch)
     )
 
-    # Give Gazebo + bridge a few seconds before the executor starts polling /drone/pose.
+    llm_agent = Node(
+        package="autobee_agent",
+        executable="llm_agent_node",
+        output="screen",
+    )
+
     mission_executor = TimerAction(
         period=6.0,
         actions=[
@@ -33,4 +43,4 @@ def generate_launch_description():
         ],
     )
 
-    return LaunchDescription([bring_up_sim, mission_executor])
+    return LaunchDescription([bring_up_sim, llm_agent, mission_executor])
