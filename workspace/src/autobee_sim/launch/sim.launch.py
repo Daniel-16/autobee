@@ -21,9 +21,14 @@ def generate_launch_description():
         description="Run Gazebo in server-only mode (no GUI).",
     )
 
+    models_dir = os.path.join(pkg_share, "models")
     gz_resource_path = SetEnvironmentVariable(
         name="GZ_SIM_RESOURCE_PATH",
-        value=os.path.join(pkg_share, "models"),
+        value=models_dir,
+    )
+    ign_resource_path = SetEnvironmentVariable(
+        name="IGN_GAZEBO_RESOURCE_PATH",
+        value=models_dir,
     )
 
     gz_sim_gui = ExecuteProcess(
@@ -59,6 +64,7 @@ def generate_launch_description():
     return LaunchDescription([
         headless_arg,
         gz_resource_path,
+        ign_resource_path,
         gz_sim_gui,
         gz_sim_headless,
         spawn_drone,

@@ -53,7 +53,9 @@
       </visual>
 
       <sensor name="camera" type="camera">
-        <pose>0.22 0 0 0 0 0</pose>
+        <!-- Pitched 45 deg downward so the front camera sees the ground
+             during low-altitude (Tello-class) survey flight. -->
+        <pose>0.18 0 -0.05 0 0.785 0</pose>
         <update_rate>30</update_rate>
         <topic>camera</topic>
         <camera>

@@ -1,11 +1,14 @@
-"""Bring up the campus sim, the LLM agent, and the mission executor in one shot.
+"""Bring up the campus sim, real YOLOv8 perception, the LLM agent, and the mission executor.
 
 Usage:
     ros2 launch autobee_core demo.launch.py
 
 Then in another terminal, send a natural-language command:
-    ros2 topic pub --once /user_intent std_msgs/String \
-        "data: 'check if the field is overcrowded'"
+    ros2 topic pub --times 3 --rate 1 /user_intent std_msgs/msg/String \
+        '{data: "check if the field is overcrowded"}'
+
+This launch is Tello-portable: replacing the autobee_sim include with a tello
+driver (e.g. tello_socket) keeps the rest of the topic graph identical.
 """
 
 import os
@@ -32,6 +35,18 @@ def generate_launch_description():
         output="screen",
     )
 
+    report = Node(
+        package="autobee_agent",
+        executable="report_node",
+        output="screen",
+    )
+
+    yolo_perception = Node(
+        package="autobee_perception",
+        executable="yolov8_perception_node",
+        output="screen",
+    )
+
     mission_executor = TimerAction(
         period=6.0,
         actions=[
@@ -43,4 +58,10 @@ def generate_launch_description():
         ],
     )
 
-    return LaunchDescription([bring_up_sim, llm_agent, mission_executor])
+    return LaunchDescription([
+        bring_up_sim,
+        llm_agent,
+        report,
+        yolo_perception,
+        mission_executor,
+    ])

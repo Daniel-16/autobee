@@ -9,8 +9,26 @@ Autonomous aerial surveillance drone for Bingham University campus. CS dissertat
 - **Nav2** — path planning / obstacle avoidance
 - **ORB-SLAM3** — visual-inertial SLAM (built from source, C++14-patched)
 - **YOLOv8 via `ultralytics`** — object detection (CPU inference, YOLOv8n)
-- **LangChain + Google Gemini** — LLM agent for mission reasoning
+- **LangChain + Google Gemini (gemini-2.5-flash)** — LLM mission planner + report writer
+- **python-dotenv** — loads `GOOGLE_API_KEY` from `/workspaces/AUTOBEE/.env`
 - **PyTorch CPU-only** — no NVIDIA GPU available on host
+- **Target actuator**: DJI Tello (low-altitude, indoor/outdoor, no GPS — SLAM is mandatory for closed loop)
+
+## Tello-portable interface
+
+All autonomy nodes consume/produce a fixed topic graph so the simulator can be swapped for a `tello_socket` driver with no node changes:
+
+- `/drone/cmd_vel` (`geometry_msgs/Twist`) — control input
+- `/drone/pose` (`geometry_msgs/Pose`) — feedback from SLAM (Tello) or Gazebo (sim). **Currently unreliable in this Fortress build; mission_executor flies open-loop on a timed schedule as fallback.**
+- `/drone/camera/image_raw` (`sensor_msgs/Image`) — camera feed
+- `/drone/imu` (`sensor_msgs/Imu`) — IMU
+- `/user_intent` (`std_msgs/String`) — natural-language command in
+- `/mission_command` (`std_msgs/String`, JSON) — LLM-emitted structured plan
+- `/perception/event` (`std_msgs/String`, JSON) — per-frame detection summary
+- `/perception/anomaly` (`std_msgs/String`) — threshold breaches
+- `/mission_report` (`std_msgs/String`) — final natural-language summary
+
+Operational envelope is clamped to Tello-class limits in `llm_agent_node`: radius 3..15 m, altitude 4..12 m.
 
 ## Architecture: host vs container
 
@@ -64,11 +82,12 @@ ros2 launch <pkg> <launch_file>
 ## Phase plan (from PRD Section 6)
 
 - **Phase 1 — Environment setup** ✅ COMPLETE (2026-04-24)
-- **Phase 2 — Simulation assets** (Gazebo campus world + drone URDF + verify camera topic @ 30 FPS)
-- **Phase 3 — Perception** (YOLOv8 ROS2 node, ≥5 FPS on CPU)
-- **Phase 4 — SLAM** (wrap ORB-SLAM3 as ROS2 node)
-- **Phase 5 — Navigation** (Nav2 integration)
-- **Phase 6 — LLM agent** (LangChain + Gemini for mission reasoning)
+- **Phase 2 — Simulation assets** ✅ Campus world + drone, camera ~7 FPS (sw-rendered ogre2)
+- **Phase 3 — Perception** ✅ YOLOv8n node + humanoid stand-ins in world
+- **Phase 4 — SLAM** 🟡 ORB-SLAM3 library built; ROS2 wrapper integration is the critical path for Tello
+- **Phase 5 — Navigation** ⏸ Nav2 integration deferred; current executor is open-loop timed
+- **Phase 6 — LLM agent** ✅ Mission planner (`llm_agent_node`) + report writer (`report_node`)
+- **Phase 7 — Voice I/O** ⛔ Whisper STT + gTTS TTS (next deliverable)
 
 ## What I'll write vs use off-the-shelf
 

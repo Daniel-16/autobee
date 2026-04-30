@@ -19,6 +19,7 @@ setup(
     entry_points={
         "console_scripts": [
             "llm_agent_node = autobee_agent.llm_agent_node:main",
+            "report_node = autobee_agent.report_node:main",
         ],
     },
 )

@@ -92,49 +92,17 @@
       </link>
     </model>
 
-    <!-- 10 pedestrian stand-ins: person-sized boxes at convocation ground.
-         TODO: upgrade to animated <actor> meshes once Fuel cache is populated
-         (see ~/.ignition/fuel/ — pre-download the Casual female model offline). -->
-    <model name="ped_1"><static>true</static><pose>12 -12 0.85 0 0 0</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.8 0.3 0.25 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
-    <model name="ped_2"><static>true</static><pose>16 -10 0.85 0 0 1.57</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.3 0.5 0.8 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
-    <model name="ped_3"><static>true</static><pose>18 -15 0.85 0 0 0</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.2 0.7 0.3 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
-    <model name="ped_4"><static>true</static><pose>10 -18 0.85 0 0 0.5</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.9 0.7 0.1 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
-    <model name="ped_5"><static>true</static><pose>14 -8 0.85 0 0 -1.0</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.6 0.2 0.7 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
-    <model name="ped_6"><static>true</static><pose>5 5 0.85 0 0 2.0</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.5 0.3 0.2 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
-    <model name="ped_7"><static>true</static><pose>-5 8 0.85 0 0 -0.8</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.1 0.4 0.9 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
-    <model name="ped_8"><static>true</static><pose>-8 -5 0.85 0 0 1.2</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.7 0.7 0.2 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
-    <model name="ped_9"><static>true</static><pose>22 -5 0.85 0 0 0</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.4 0.6 0.6 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
-    <model name="ped_10"><static>true</static><pose>0 -10 0.85 0 0 -2.3</pose><link name="l">
-      <visual name="v"><geometry><box><size>0.45 0.35 1.7</size></box></geometry>
-        <material><diffuse>0.85 0.4 0.1 1</diffuse></material></visual>
-      <collision name="c"><geometry><box><size>0.45 0.35 1.7</size></box></geometry></collision></link></model>
+    <!-- 10 humanoid stand-ins clustered around takeoff for Tello-class radius (~6-8m). -->
+    <include><name>person_1</name><pose>3.0 1.5 0 0 0 0.4</pose><uri>model://person</uri></include>
+    <include><name>person_2</name><pose>4.5 -1.0 0 0 0 1.2</pose><uri>model://person</uri></include>
+    <include><name>person_3</name><pose>-3.5 2.0 0 0 0 -0.6</pose><uri>model://person</uri></include>
+    <include><name>person_4</name><pose>-2.0 -3.5 0 0 0 2.1</pose><uri>model://person</uri></include>
+    <include><name>person_5</name><pose>5.5 3.0 0 0 0 -1.5</pose><uri>model://person</uri></include>
+    <include><name>person_6</name><pose>1.5 4.5 0 0 0 0.0</pose><uri>model://person</uri></include>
+    <include><name>person_7</name><pose>-4.5 -1.0 0 0 0 1.7</pose><uri>model://person</uri></include>
+    <include><name>person_8</name><pose>0.5 -4.0 0 0 0 -2.4</pose><uri>model://person</uri></include>
+    <include><name>person_9</name><pose>-1.0 5.5 0 0 0 0.9</pose><uri>model://person</uri></include>
+    <include><name>person_10</name><pose>4.0 -3.5 0 0 0 -0.3</pose><uri>model://person</uri></include>
 
     <!-- Additional buildings: give perception/SLAM more distinct landmarks. -->
     <model name="landmark_lecture_hall">

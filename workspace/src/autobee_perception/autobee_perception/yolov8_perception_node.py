@@ -1,5 +1,6 @@
 """Phase-3 perception: YOLOv8n on the drone camera, publishing detections, person count, anomaly flags."""
 
+import json
 import os
 
 import rclpy
@@ -42,8 +43,10 @@ class YoloPerceptionNode(Node):
         self.ann_pub = self.create_publisher(Image, "/perception/image_annotated", 10)
         self.count_pub = self.create_publisher(Int32, "/perception/person_count", 10)
         self.anomaly_pub = self.create_publisher(String, "/perception/anomaly", 10)
+        self.event_pub = self.create_publisher(String, "/perception/event", 10)
 
         self._frames = 0
+        self._anomaly_active = False
         self._log_timer = self.create_timer(5.0, self._log_rate)
         self.get_logger().info(f"Subscribed to {image_topic}")
 
@@ -62,6 +65,7 @@ class YoloPerceptionNode(Node):
         detections = Detection2DArray()
         detections.header = msg.header
         person_count = 0
+        person_confs = []
         for box in r.boxes:
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
@@ -82,6 +86,7 @@ class YoloPerceptionNode(Node):
             detections.detections.append(d)
             if cls_id == PERSON_CLASS_COCO:
                 person_count += 1
+                person_confs.append(conf)
 
         self.det_pub.publish(detections)
 
@@ -94,12 +99,35 @@ class YoloPerceptionNode(Node):
         count_msg.data = person_count
         self.count_pub.publish(count_msg)
 
-        if person_count >= self.threshold:
+        if person_count <= 3:
+            density = "low"
+        elif person_count <= 8:
+            density = "medium"
+        else:
+            density = "high"
+        avg_conf = round(sum(person_confs) / len(person_confs), 2) if person_confs else 0.0
+
+        event = {
+            "timestamp": self.get_clock().now().nanoseconds / 1e9,
+            "frame_id": msg.header.frame_id or "drone/camera",
+            "person_count": person_count,
+            "density": density,
+            "confidence": avg_conf,
+            "source": "yolov8",
+        }
+        event_msg = String()
+        event_msg.data = json.dumps(event)
+        self.event_pub.publish(event_msg)
+
+        if person_count >= self.threshold and not self._anomaly_active:
+            self._anomaly_active = True
             alert = String()
             alert.data = (
                 f"CROWD_DENSITY_HIGH person_count={person_count} threshold={self.threshold}"
             )
             self.anomaly_pub.publish(alert)
+        elif person_count < int(self.threshold * 0.7):
+            self._anomaly_active = False
 
         self._frames += 1
 

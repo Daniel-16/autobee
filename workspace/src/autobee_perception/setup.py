@@ -14,7 +14,7 @@ setup(
     zip_safe=True,
     maintainer="Daniel Oloruntoba",
     maintainer_email="danieloloruntoba681@gmail.com",
-    description="YOLOv8-based aerial perception node.",
+    description="YOLOv8-based aerial perception emitting structured detections.",
     license="MIT",
     entry_points={
         "console_scripts": [

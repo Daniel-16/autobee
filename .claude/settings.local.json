@@ -39,7 +39,10 @@
       "Read(//root/autobee_ws/install/autobee_core/share/autobee_core/launch/**)",
       "Read(//root/**)",
       "WebFetch(domain:ai.google.dev)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "WebSearch",
+      "WebFetch(domain:app.gazebosim.org)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

@@ -31,12 +31,12 @@ class MissionExecutorNode(Node):
     def __init__(self):
         super().__init__("mission_executor_node")
 
-        self.declare_parameter("default_cruise_altitude_m", 30.0)
-        self.declare_parameter("default_survey_radius_m", 15.0)
+        self.declare_parameter("default_cruise_altitude_m", 8.0)
+        self.declare_parameter("default_survey_radius_m", 6.0)
         self.declare_parameter("default_survey_pattern", "spiral")
-        self.declare_parameter("max_xy_speed", 2.0)
-        self.declare_parameter("max_z_speed", 1.5)
-        self.declare_parameter("max_yaw_rate", 0.8)
+        self.declare_parameter("max_xy_speed", 1.0)
+        self.declare_parameter("max_z_speed", 0.6)
+        self.declare_parameter("max_yaw_rate", 0.6)
         self.declare_parameter("settle_time_s", 1.0)
         self.declare_parameter("autostart_mission", "")
 
