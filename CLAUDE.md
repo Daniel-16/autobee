@@ -19,14 +19,18 @@ Autonomous aerial surveillance drone for Bingham University campus. CS dissertat
 All autonomy nodes consume/produce a fixed topic graph so the simulator can be swapped for a `tello_socket` driver with no node changes:
 
 - `/drone/cmd_vel` (`geometry_msgs/Twist`) — control input
-- `/drone/pose` (`geometry_msgs/Pose`) — feedback from SLAM (Tello) or Gazebo (sim). **Currently unreliable in this Fortress build; mission_executor flies open-loop on a timed schedule as fallback.**
+- `/drone/pose` (`geometry_msgs/Pose`) — feedback from `autobee_slam`'s `orb_slam3_node` (Tello + sim). **Mission executor still flies open-loop on a timed schedule by default; `/drone/pose` is consumed for a post-mission RTH audit (`rth_error_xy_m` in `/mission_status`). Closed-loop control is the next step.**
+- `/tts_say` (`std_msgs/String`) — ad-hoc "speak this now" channel into `tts_node`
+- `/tts_speaking` (`std_msgs/String`, JSON) — TTS state events (`{"state":"started","text":"..."}`)
 - `/drone/camera/image_raw` (`sensor_msgs/Image`) — camera feed
 - `/drone/imu` (`sensor_msgs/Imu`) — IMU
 - `/user_intent` (`std_msgs/String`) — natural-language command in
 - `/mission_command` (`std_msgs/String`, JSON) — LLM-emitted structured plan
 - `/perception/event` (`std_msgs/String`, JSON) — per-frame detection summary
-- `/perception/anomaly` (`std_msgs/String`) — threshold breaches
-- `/mission_report` (`std_msgs/String`) — final natural-language summary
+- `/perception/anomaly` (`std_msgs/String`) — single-frame threshold breach (legacy, raw)
+- `/crowd_analytics` (`std_msgs/String`, JSON) — temporal aggregation: peak/mean/median count, trend, rate, density label
+- `/anomaly_alert` (`std_msgs/String`, JSON) — typed anomalies (SURGE, DISPERSAL, SUSTAINED_HIGH, GATHERING) with severity
+- `/mission_report` (`std_msgs/String`) — final natural-language summary synthesised from analytics + alerts
 
 Operational envelope is clamped to Tello-class limits in `llm_agent_node`: radius 3..15 m, altitude 4..12 m.
 
@@ -82,18 +86,23 @@ ros2 launch <pkg> <launch_file>
 ## Phase plan (from PRD Section 6)
 
 - **Phase 1 — Environment setup** ✅ COMPLETE (2026-04-24)
-- **Phase 2 — Simulation assets** ✅ Campus world + drone, camera ~7 FPS (sw-rendered ogre2)
-- **Phase 3 — Perception** ✅ YOLOv8n node + humanoid stand-ins in world
-- **Phase 4 — SLAM** 🟡 ORB-SLAM3 library built; ROS2 wrapper integration is the critical path for Tello
-- **Phase 5 — Navigation** ⏸ Nav2 integration deferred; current executor is open-loop timed
-- **Phase 6 — LLM agent** ✅ Mission planner (`llm_agent_node`) + report writer (`report_node`)
-- **Phase 7 — Voice I/O** ⛔ Whisper STT + gTTS TTS (next deliverable)
+- **Phase 2 — Simulation assets** ✅ Campus world + drone, camera ~7 FPS (sw-rendered ogre2). Campus has 4 named landmark models: `main_gate`, `library`, `convocation_ground`, `admin`.
+- **Phase 3 — Perception** ✅ YOLOv8n node + crowd_analytics_node (temporal stats) + anomaly_detection_node (SURGE/DISPERSAL/SUSTAINED_HIGH/GATHERING) + humanoid stand-ins. NB: YOLO recall on geometric stand-ins is ~0; analytics pipeline is verified end-to-end against the abstract event stream and re-targets to real Tello footage without changes.
+- **Phase 4 — SLAM** 🟡 ORB-SLAM3 library built; `autobee_slam` package now provides a thin C++ shim (`orb_slam3_node`) that publishes `/drone/pose`. **Build/runtime debug pending on user side** (see autobee_slam/README.md). Mono-only for now; mono-inertial is the upgrade.
+- **Phase 5 — Navigation** ⏸ Nav2 integration deferred. Executor remains open-loop timed but now subscribes to `/drone/pose` and emits a `rth_error_xy_m` audit field on completion when SLAM is up.
+- **Phase 6 — LLM agent** ✅ Mission planner (`llm_agent_node`) + report writer (`report_node`). Now landmark-aware (T-01..T-04 vocabulary).
+- **Phase 7 — Voice I/O** 🟡 `autobee_voice` package: `whisper_stt_node` + `tts_node` (gTTS / pyttsx3 fallback). Wired into `demo.launch.py voice:=true`. **Build/runtime debug pending on user side** (audio device passthrough — see autobee_voice/README.md).
+
+## Acceptance harness
+
+`scripts/acceptance/`:
+- `smoke_test.sh` — topic-graph + node-liveness check, run after `demo.launch.py` is up
+- `run_acceptance.py` — drives PRD §11 T-01..T-09 by publishing `/user_intent` and asserting on `/mission_command` + `/mission_status` + `/mission_report`. Writes `acceptance_results.jsonl` and prints a TSR summary.
 
 ## What I'll write vs use off-the-shelf
 
-Writing: Python ROS2 nodes (perception, glue), YAML configs, xacro/SDF world + drone, launch files.
-Using as-is: Nav2 stack, ORB-SLAM3 library (with an existing ros2-ORB_SLAM3 wrapper), Gazebo plugins.
-Effectively zero C++ authoring expected.
+Writing: Python ROS2 nodes (perception, glue, voice), YAML configs, xacro/SDF world + drone, launch files. **One small C++ shim** (`autobee_slam/src/orb_slam3_node.cpp`, ~140 lines) — chosen over vendoring a community wrapper because community wrappers' build configs are notoriously brittle across ORB-SLAM3 versions, and a debuggable 140-line shim is preferable to a 5000-line one we'd have to fork anyway.
+Using as-is: Nav2 stack (deferred), ORB-SLAM3 library, Gazebo plugins, openai-whisper, gTTS/pyttsx3.
 
 ## Resource awareness
 

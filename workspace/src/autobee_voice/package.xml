@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>autobee_voice</name>
+  <version>0.1.0</version>
+  <description>Voice I/O for AutoBee: Whisper STT (mic to /user_intent) and gTTS TTS (/mission_report to speech).</description>
+  <maintainer email="danieloloruntoba681@gmail.com">Daniel Oloruntoba</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
