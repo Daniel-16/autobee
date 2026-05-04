@@ -997,36 +997,46 @@ During simulation runs, the system logs:
 
 ---
 
-## 12. Phase 7: Bebop 2 Bridge & Real-World Transition
+## 12. Phase 7: Real-World Transition (DJI Tello)
 
-> **This phase is BLOCKED until Phase 6 is fully complete and all deliverables are signed off.**
+> **This section was originally written for the Parrot Bebop 2 + `ros1_bridge` plan. The project pivoted to the DJI Tello as the target actuator (no GPS, indoor/outdoor, low altitude, small physical envelope, USB-side WiFi link instead of a ROS1 driver). The Bebop/`ros1_bridge` plan is **superseded** and retained below only as historical context. The Tello path is what will actually ship.**
 
-### Overview
+### Why the pivot
 
-With simulation validated, the system is transferred to the physical Parrot Bebop 2 drone using the `ros1_bridge` strategy described in Section 3.
+- Bebop 2 is end-of-life hardware; spares + batteries are scarce and expensive.
+- `bebop_autonomy` is ROS1-only, forcing the dual-stack `ros1_bridge` workaround. Tello has a Python UDP socket protocol (`djitellopy`) that wraps cleanly into a single ROS2 node — no bridge needed.
+- Tello's operational envelope (3..15 m radius, 4..12 m altitude, ~10 min flight time) is a closer fit for an indoor/courtyard demo than Bebop's outdoor-leaning envelope.
+- The autonomy stack (perception, analytics, anomaly, LLM agent, executor) consumes only the abstract topic graph in `CLAUDE.md`, so swapping the simulator for a `tello_socket` driver is a per-platform driver swap, **not** a re-architecture.
 
-### Pre-Flight Checklist
+### Tello path — pre-flight checklist (active)
 
-Before the first autonomous flight, the following must be completed:
+- [ ] `tello_socket` ROS2 node implemented: subscribes to `/drone/cmd_vel`, publishes to `/drone/camera/image_raw`, `/drone/imu`, `/drone/pose`. (Pose comes from SLAM, not Tello — Tello has no pose feedback of its own.)
+- [ ] `djitellopy` integration — connect, takeoff, land, RC-control, video stream
+- [ ] ORB-SLAM3 wrapper validated on **real** Tello camera feed in a known environment (sim YAML must NOT be reused — new `Tello_MonoInertial.yaml` after calibration)
+- [ ] Camera calibration completed for the actual Tello unit (per R-09)
+- [ ] All Phase 6 simulation tests re-run with `tello_socket` driver substituted for the Gazebo bringup
+- [ ] Software kill switch (republish `/mission_abort` from a button or hotkey) verified end-to-end
+- [ ] All Phase 6 tests passing with ≥ 90% success rate before unsupervised flight
 
-- [ ] ROS1 Noetic installed (source build on Ubuntu 22.04 or native on Ubuntu 20.04)
-- [ ] `bebop_autonomy` driver compiled and tested (`roslaunch bebop_driver bebop_node.launch`)
-- [ ] `ros1_bridge` built from source and bridge.yaml configured (see Section 3)
-- [ ] Camera calibration completed with checkerboard — new `Bebop2_MonoInertial.yaml` generated
-- [ ] ORB-SLAM3 re-tested with real camera feed in a known environment
-- [ ] All Phase 6 simulation tests re-run with bridge active (Bebop topics on ROS1 side)
-- [ ] Hardware kill switch verified — physical remote override confirmed working
-- [ ] All Phase 6 tests passing with ≥ 90% success rate before outdoor flight
+### Real-world testing progression (Tello)
 
-### Real-World Testing Progression
+Incremental flights — never jump to full autonomy on first real flight:
 
-Real-world testing must be incremental — never jump to full autonomy on first outdoor flight:
+1. **Step 1:** Teleop only via `tello_socket` — verify connection, camera, IMU stream, kill switch
+2. **Step 2:** ORB-SLAM3 running during teleop flight — verify localization quality on real footage
+3. **Step 3:** YOLOv8 running during teleop flight — verify detections on real people
+4. **Step 4:** Single autonomous mini-mission (`survey_local_area` with radius 3 m, altitude 4 m) — operator on kill switch, indoor only
+5. **Step 5:** Full end-to-end T-09 demo run, outdoor courtyard, observer + kill switch present
 
-1. **Step 1:** Manual flight via `bebop_autonomy` only — verify driver, camera, IMU
-2. **Step 2:** ORB-SLAM3 running during manual flight — verify localization quality
-3. **Step 3:** YOLOv8 running during manual flight — verify detections on real crowd
-4. **Step 4:** Single autonomous waypoint (Nav2 navigates 5m forward and hovers) — operator standby with kill switch
-5. **Step 5:** Full end-to-end autonomous mission on campus — human observer present at all times
+### Historical: superseded Bebop 2 plan
+
+> Retained for dissertation traceability. **Do not implement.**
+>
+> - ROS1 Noetic installed (source build on Ubuntu 22.04 or native on Ubuntu 20.04)
+> - `bebop_autonomy` driver compiled and tested
+> - `ros1_bridge` built from source and bridge.yaml configured (see Section 3)
+> - Bebop2-specific camera calibration → `Bebop2_MonoInertial.yaml`
+> - Hardware kill switch via physical remote override
 
 ---
 

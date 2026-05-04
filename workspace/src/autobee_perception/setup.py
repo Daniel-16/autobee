@@ -19,6 +19,8 @@ setup(
     entry_points={
         "console_scripts": [
             "yolov8_perception_node = autobee_perception.yolov8_perception_node:main",
+            "crowd_analytics_node = autobee_perception.crowd_analytics_node:main",
+            "anomaly_detection_node = autobee_perception.anomaly_detection_node:main",
         ],
     },
 )

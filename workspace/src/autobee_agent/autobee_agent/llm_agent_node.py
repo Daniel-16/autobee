@@ -34,10 +34,23 @@ except ImportError:
     pass
 
 
+KNOWN_LANDMARKS = {
+    "main_gate",
+    "library",
+    "convocation_ground",
+    "admin",
+}
+
 SYSTEM_PROMPT = """You are AutoBee's mission planner. AutoBee is an autonomous surveillance drone (DJI Tello class — small, indoor/outdoor, low altitude, ~10 minute flight time). You convert a non-pilot user's natural-language request into ONE valid JSON mission command.
 
 Supported action: "survey_local_area"
-The drone flies a pattern starting from its current position (takeoff_pose), surveys the area, then returns home. Camera-based perception runs during flight to detect crowds and anomalies. Operational envelope is constrained for safe Tello-class flight.
+The drone surveys an area with a spiral or orbit pattern, runs camera perception during flight to detect crowds and anomalies, then returns to its takeoff pose. The survey is centered on either (a) a named campus landmark, or (b) the current takeoff pose for "this place" / unnamed-area requests. Operational envelope is constrained for safe Tello-class flight.
+
+Known campus landmarks (use the exact lowercase identifier in the JSON):
+  - "main_gate"          : campus entry; also the implicit "base" for return-to-home
+  - "library"            : library building entrance area
+  - "convocation_ground" : large open assembly area; high-crowd venue
+  - "admin"              : administration block
 
 Output JSON schema (return ONLY valid JSON, no prose, no markdown fences):
 {{
@@ -45,25 +58,40 @@ Output JSON schema (return ONLY valid JSON, no prose, no markdown fences):
   "radius_m": <number, 3..15>,
   "altitude_m": <number, 4..12>,
   "pattern": "spiral" | "orbit",
+  "landmark": "<one of: main_gate, library, convocation_ground, admin>" | null,
   "intent": "<short phrase describing what to look for>"
 }}
 
-Defaults when the user is vague: radius_m=8, altitude_m=8, pattern="spiral".
+Use "landmark": null for local-area / "this place" / "around me" / "right here" / no-named-place commands. Set "landmark" only when the user explicitly names one of the known campus locations (or asks to "return to base", which maps to "main_gate").
+
+Defaults when the user is vague: radius_m=6, altitude_m=8, pattern="orbit", landmark=null.
+NOTE: "orbit" is preferred for short missions because it accumulates less drift in open-loop flight. Use "spiral" only when the user explicitly asks for full-coverage sweep / mapping / "every corner" / "thorough" wording.
+
 "quick check" / small areas        -> radius_m=4, altitude_m=6, pattern="orbit"
-"thorough sweep" / large areas     -> radius_m=12, altitude_m=10, pattern="spiral"
+"thorough sweep" / "every corner"  -> radius_m=10, altitude_m=10, pattern="spiral"
 "circle around" / "fly around it"  -> pattern="orbit"
 overcrowding / crowd density       -> intent: "detect crowd density"
 weird / suspicious / anomaly       -> intent: "detect anomalies"
+"return to base" / "RTH" / "go home" -> landmark="main_gate", radius_m=3, altitude_m=4, pattern="orbit", intent: "return to base"
 
 Examples:
 User: "check if the field is overcrowded"
-{{"action":"survey_local_area","radius_m":8,"altitude_m":8,"pattern":"spiral","intent":"detect crowd density"}}
+{{"action":"survey_local_area","radius_m":6,"altitude_m":8,"pattern":"orbit","landmark":null,"intent":"detect crowd density"}}
+
+User: "scan the convocation ground for overcrowding"
+{{"action":"survey_local_area","radius_m":8,"altitude_m":8,"pattern":"orbit","landmark":"convocation_ground","intent":"detect crowd density at convocation ground"}}
+
+User: "check the library entrance for unauthorized gatherings"
+{{"action":"survey_local_area","radius_m":6,"altitude_m":8,"pattern":"orbit","landmark":"library","intent":"detect unauthorized gatherings at library"}}
+
+User: "return to base immediately"
+{{"action":"survey_local_area","radius_m":3,"altitude_m":4,"pattern":"orbit","landmark":"main_gate","intent":"return to base"}}
 
 User: "do a quick orbit and tell me if anything looks weird"
-{{"action":"survey_local_area","radius_m":5,"altitude_m":6,"pattern":"orbit","intent":"detect anomalies"}}
+{{"action":"survey_local_area","radius_m":4,"altitude_m":6,"pattern":"orbit","landmark":null,"intent":"detect anomalies"}}
 
-User: "thorough surveillance of this area"
-{{"action":"survey_local_area","radius_m":12,"altitude_m":10,"pattern":"spiral","intent":"thorough surveillance"}}
+User: "thorough sweep of this area, every corner"
+{{"action":"survey_local_area","radius_m":10,"altitude_m":10,"pattern":"spiral","landmark":null,"intent":"thorough surveillance"}}
 """
 
 
@@ -175,6 +203,17 @@ class LLMAgentNode(Node):
             self.get_logger().warn(f"unknown pattern {pattern!r}, defaulting to spiral")
             pattern = "spiral"
 
+        landmark = command.get("landmark")
+        if landmark is not None:
+            landmark = str(landmark).strip().lower() or None
+        if landmark is not None and landmark not in KNOWN_LANDMARKS:
+            # Drop unknown landmark identifiers — better to fall back to local
+            # survey than to send the executor to a fabricated coordinate.
+            self.get_logger().warn(
+                f"unknown landmark {landmark!r}; falling back to local-area survey"
+            )
+            landmark = None
+
         intent = str(command.get("intent") or original_text)
 
         return {
@@ -182,6 +221,7 @@ class LLMAgentNode(Node):
             "radius_m": clamped_radius,
             "altitude_m": clamped_altitude,
             "pattern": pattern,
+            "landmark": landmark,
             "intent": intent,
         }
 

@@ -41,19 +41,28 @@ REPORT_PROMPT = """You are AutoBee's report writer. AutoBee just finished an aut
 Guidelines:
 - Speak in plain conversational English, no markdown
 - Anchor your report to the original intent (what the user actually asked about)
-- Be specific with numbers: peak person count, dominant density level, anomaly count
+- If a "landmark" is set in the input, name the location in plain English (e.g. "convocation_ground" -> "the convocation ground", "main_gate" -> "the main gate", "library" -> "the library entrance area", "admin" -> "the administration block")
+- If "landmark" is null, refer to the area as "this area" or "your current location" -- do NOT fabricate a location
+- If "outcome" is "aborted" or "failed", lead with that fact and the reason; analytics are secondary
+- Be specific with numbers: peak person count, dominant density level
 - If no people were detected, say so clearly -- do not invent observations
-- If anomalies fired, lead with that
+- If structured anomalies are present, lead with the highest-severity one and use its description verbatim
+- If the final_analytics show a clear trend (rising/falling), mention it
 - Tone: factual, calm, like a security operator briefing
 
 Input JSON describes the mission outcome:
 {{
   "intent": "<original user request>",
+  "landmark": "<landmark id>" | null,
+  "outcome": "completed" | "aborted" | "failed",
+  "terminal_phase": "<last phase reached>",
+  "failure_reason": "<reason if aborted/failed>",
   "frames_observed": <int>,
   "peak_person_count": <int>,
   "mean_person_count": <float>,
   "density_breakdown": {{"low": <int>, "medium": <int>, "high": <int>}},
-  "anomalies": [<list of anomaly strings>],
+  "anomalies": [{{"type": "...", "severity": "...", "description": "..."}}, ...],
+  "final_analytics": {{ "trend": "...", "density_label": "...", "rate_per_sec": <float>, ... }} | null,
   "duration_s": <float>
 }}
 
@@ -75,8 +84,11 @@ class ReportNode(Node):
 
         self.report_pub = self.create_publisher(String, "/mission_report", 10)
         self.create_subscription(String, "/mission_command", self._on_command, 10)
+        self.create_subscription(String, "/mission_status", self._on_status, 10)
         self.create_subscription(String, "/perception/event", self._on_event, 10)
         self.create_subscription(String, "/perception/anomaly", self._on_anomaly, 10)
+        self.create_subscription(String, "/anomaly_alert", self._on_anomaly_alert, 10)
+        self.create_subscription(String, "/crowd_analytics", self._on_analytics, 10)
 
         self._mission_active = False
         self._mission_intent = ""
@@ -84,7 +96,10 @@ class ReportNode(Node):
         self._counts = []
         self._density_counts = {"low": 0, "medium": 0, "high": 0}
         self._anomalies = []
+        self._anomaly_alerts = []
+        self._last_analytics = None
         self._last_event_time = None
+        self._final_status = None
 
         self.create_timer(2.0, self._check_silence)
 
@@ -129,13 +144,21 @@ class ReportNode(Node):
             return
         self._mission_active = True
         self._mission_intent = str(cmd.get("intent", ""))
+        landmark = cmd.get("landmark")
+        self._mission_landmark = (
+            str(landmark).strip().lower() if isinstance(landmark, str) and landmark.strip() else None
+        )
         self._mission_start_wall = time.time()
         self._counts = []
         self._density_counts = {"low": 0, "medium": 0, "high": 0}
         self._anomalies = []
+        self._anomaly_alerts = []
+        self._last_analytics = None
         self._last_event_time = None
+        self._final_status = None
         self.get_logger().info(
-            f"new mission tracked (intent={self._mission_intent!r}); aggregating perception events"
+            f"new mission tracked (intent={self._mission_intent!r} "
+            f"landmark={self._mission_landmark!r}); aggregating perception events"
         )
 
     def _on_event(self, msg: String):
@@ -158,6 +181,36 @@ class ReportNode(Node):
         self._anomalies.append(msg.data)
         self._last_event_time = time.time()
 
+    def _on_status(self, msg: String):
+        if not self._mission_active:
+            return
+        try:
+            status = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        event = status.get("event")
+        if event in ("completed", "aborted", "failed"):
+            self._final_status = status
+            self._finalize_mission()
+
+    def _on_anomaly_alert(self, msg: String):
+        if not self._mission_active:
+            return
+        try:
+            alert = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        self._anomaly_alerts.append(alert)
+        self._last_event_time = time.time()
+
+    def _on_analytics(self, msg: String):
+        if not self._mission_active:
+            return
+        try:
+            self._last_analytics = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+
     def _check_silence(self):
         if not self._mission_active or self._last_event_time is None:
             return
@@ -166,20 +219,39 @@ class ReportNode(Node):
             self._finalize_mission()
 
     def _finalize_mission(self):
-        if not self._counts and not self._anomalies:
-            self.get_logger().warn("mission ended with zero observations; skipping report")
-            self._mission_active = False
+        if not self._mission_active:
             return
+        # Always synthesize a report -- a zero-detection mission, an aborted
+        # mission, and a failed mission are all valid outcomes the operator
+        # deserves to hear about.
+        anomaly_summary = [
+            {"type": a.get("type"), "severity": a.get("severity"), "description": a.get("description")}
+            for a in self._anomaly_alerts
+        ]
+        if self._final_status:
+            outcome = self._final_status.get("event", "completed")
+            failure_reason = self._final_status.get("reason", "")
+            terminal_phase = self._final_status.get("phase", "")
+        else:
+            outcome = "completed"
+            failure_reason = ""
+            terminal_phase = ""
 
         summary = {
             "intent": self._mission_intent,
+            "landmark": getattr(self, "_mission_landmark", None),
+            "outcome": outcome,
+            "terminal_phase": terminal_phase,
+            "failure_reason": failure_reason,
             "frames_observed": len(self._counts),
             "peak_person_count": max(self._counts) if self._counts else 0,
             "mean_person_count": (
                 round(statistics.fmean(self._counts), 2) if self._counts else 0.0
             ),
             "density_breakdown": dict(self._density_counts),
-            "anomalies": self._anomalies,
+            "raw_anomaly_strings": self._anomalies,
+            "anomalies": anomaly_summary,
+            "final_analytics": self._last_analytics,
             "duration_s": round(time.time() - self._mission_start_wall, 1)
             if self._mission_start_wall else 0.0,
         }
