@@ -4,9 +4,10 @@ No ROS imports — runnable and testable as a plain script.
 """
 
 import math
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 
 Waypoint = Tuple[float, float, float]
+Obstacle = Tuple[float, float, float]  # (cx, cy, safety_radius_m)
 
 
 def spiral(
@@ -72,6 +73,62 @@ def generate(
     if pattern == "orbit":
         return orbit(center_xy, radius_m, altitude_m)
     raise ValueError(f"Unknown pattern: {pattern!r} (supported: spiral, orbit)")
+
+
+def avoid_obstacles(
+    waypoints: Iterable[Waypoint],
+    obstacles: Iterable[Obstacle],
+    drone_safety_m: float = 0.6,
+) -> Tuple[List[Waypoint], int]:
+    """Push any waypoint inside an obstacle's safety circle radially outward.
+
+    Geometric obstacle avoidance against a known-map. Each obstacle is a
+    (cx, cy, safety_radius) tuple in the same XY frame as the waypoints.
+    For each waypoint inside an obstacle's inflated safety circle, push it
+    out to radius + drone_safety_m. Multiple-overlap edge case (waypoint
+    inside two circles simultaneously) is handled by re-iterating until
+    stable; if it doesn't stabilise within a few passes we accept the
+    last position rather than oscillate.
+
+    Returns: (list of (x, y, z) — same length and order as input,
+              count of waypoints that were repaired)
+    """
+    obstacle_list = list(obstacles)
+    repairs = 0
+    out: List[Waypoint] = []
+    for wx, wy, wz in waypoints:
+        repaired_this_wp = False
+        for _ in range(5):  # at most a few resolution passes per waypoint
+            stable = True
+            for (ox, oy, r) in obstacle_list:
+                dx, dy = wx - ox, wy - oy
+                d = math.hypot(dx, dy)
+                limit = r + drone_safety_m
+                if d < limit:
+                    if d < 1e-6:
+                        # Right at obstacle centre — pick an arbitrary axis
+                        nx, ny = 1.0, 0.0
+                    else:
+                        nx, ny = dx / d, dy / d
+                    target = limit + 0.1
+                    wx = ox + nx * target
+                    wy = oy + ny * target
+                    stable = False
+                    repaired_this_wp = True
+            if stable:
+                break
+        if repaired_this_wp:
+            repairs += 1
+        out.append((wx, wy, wz))
+    return out, repairs
+
+
+def is_obstacle_relevant_at_altitude(obstacle_height_m: float, cruise_alt_m: float,
+                                     vertical_clearance_m: float = 1.5) -> bool:
+    """An obstacle is only a collision risk if the cruise altitude is within
+    vertical_clearance of its top. Tall buildings are still relevant; benches
+    and lamp posts at ground level are not."""
+    return cruise_alt_m <= obstacle_height_m + vertical_clearance_m
 
 
 if __name__ == "__main__":

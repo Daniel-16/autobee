@@ -21,6 +21,7 @@ setup(
             "yolov8_perception_node = autobee_perception.yolov8_perception_node:main",
             "crowd_analytics_node = autobee_perception.crowd_analytics_node:main",
             "anomaly_detection_node = autobee_perception.anomaly_detection_node:main",
+            "looming_detector_node = autobee_perception.looming_detector_node:main",
         ],
     },
 )

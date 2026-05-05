@@ -47,7 +47,11 @@ from rclpy.node import Node
 from geometry_msgs.msg import Pose, Twist
 from std_msgs.msg import String
 
-from autobee_core.survey_pattern_generator import generate
+from autobee_core.survey_pattern_generator import (
+    avoid_obstacles,
+    generate,
+    is_obstacle_relevant_at_altitude,
+)
 
 
 # World XY of named landmarks in campus.sdf (must stay in sync with the
@@ -57,6 +61,35 @@ LANDMARKS = {
     "library":            (10.0, 15.0),
     "convocation_ground": (15.0, -15.0),
     "admin":              (-10.0, -18.0),
+    "lecture_hall":       (28.0, 8.0),
+    "chapel":             (-25.0, 18.0),
+    "hostel":             (-18.0, 25.0),
+    "dining_hall":        (25.0, -28.0),
+}
+
+
+# Hand-rolled known-map for geometric obstacle avoidance — mirrors campus.sdf.
+# Format: name -> (world_x, world_y, safety_radius_m, top_height_m).
+# safety_radius is approximated as (max footprint extent / 2) + drone buffer
+# so a circular keep-out comfortably contains an axis-aligned bounding box.
+# Convocation_ground is intentionally absent — it's a ground-level platform
+# (z<0.2) and never a collision risk above 4m altitude.
+KNOWN_OBSTACLES = {
+    # Trees: ~1.6 m canopy + buffer
+    "tree_1":       (28.0, -22.0, 3.0, 4.6),
+    "tree_2":       (28.0, -18.0, 3.0, 4.6),
+    "tree_3":       (28.0, -14.0, 3.0, 5.1),
+    "tree_4":       (28.0, -10.0, 3.0, 4.6),
+    "tree_5":       (0.0,  10.0,  3.0, 5.1),
+    "tree_6":       (-5.0, -5.0,  3.0, 4.6),
+    # Buildings: max(sx, sy)/2 + 1.5 m drone buffer
+    "main_gate":    (-20.0, 0.0,  6.5, 4.0),
+    "library":      (10.0,  15.0, 7.5, 8.0),
+    "admin":        (-10.0, -18.0, 6.5, 6.0),
+    "lecture_hall": (28.0,  8.0,  9.0, 6.0),
+    "chapel":       (-25.0, 18.0, 7.5, 7.0),
+    "hostel":       (-18.0, 25.0, 8.5, 9.0),
+    "dining_hall":  (25.0,  -28.0, 6.5, 5.0),
 }
 
 
@@ -64,7 +97,7 @@ class MissionExecutorNode(Node):
     def __init__(self):
         super().__init__("mission_executor_node")
 
-        self.declare_parameter("default_cruise_altitude_m", 8.0)
+        self.declare_parameter("default_cruise_altitude_m", 11.0)
         self.declare_parameter("default_survey_radius_m", 6.0)
         self.declare_parameter("default_survey_pattern", "orbit")
         self.declare_parameter("max_xy_speed", 1.0)
@@ -76,10 +109,18 @@ class MissionExecutorNode(Node):
         # Used to compute open-loop transit legs to/from named landmarks.
         self.declare_parameter("takeoff_world_x", 0.0)
         self.declare_parameter("takeoff_world_y", 0.0)
+        # Geometric obstacle avoidance against KNOWN_OBSTACLES (campus.sdf).
+        # Set to false to fly the raw pattern (debug only).
+        self.declare_parameter("avoid_known_obstacles", True)
+        # Optical-flow looming + YOLO obstacle detection backstop. Lets a
+        # perception trigger publish /mission_abort even mid-pattern.
+        self.declare_parameter("perception_backstop", True)
         self.takeoff_world_xy = (
             float(self.get_parameter("takeoff_world_x").value),
             float(self.get_parameter("takeoff_world_y").value),
         )
+        self.avoid_known = bool(self.get_parameter("avoid_known_obstacles").value)
+        self.perception_backstop = bool(self.get_parameter("perception_backstop").value)
 
         self.max_xy_speed = float(self.get_parameter("max_xy_speed").value)
         self.max_z_speed = float(self.get_parameter("max_z_speed").value)
@@ -95,6 +136,9 @@ class MissionExecutorNode(Node):
         # When SLAM is not running, _last_pose stays None and the executor
         # behaves exactly as before (open-loop).
         self.create_subscription(Pose, "/drone/pose", self._on_pose, 10)
+        # Perception backstops — publish /mission_abort if collision imminent.
+        self.create_subscription(String, "/perception/looming", self._on_looming, 10)
+        self.create_subscription(String, "/perception/obstacles", self._on_obstacle_detection, 10)
         self.create_timer(0.05, self._tick)
         self._last_pose = None
         self._takeoff_pose = None
@@ -158,6 +202,19 @@ class MissionExecutorNode(Node):
             self.survey_radius = radius
             self.survey_pattern = pattern
             self.survey_landmark = landmark
+            # If the destination is a building obstacle, force the orbit radius
+            # to clear its safety circle. Otherwise the survey would happen
+            # inside the building.
+            if landmark and landmark in KNOWN_OBSTACLES and self.avoid_known:
+                _, _, dst_r, dst_top = KNOWN_OBSTACLES[landmark]
+                if is_obstacle_relevant_at_altitude(dst_top, cruise):
+                    min_orbit = dst_r + 1.5
+                    if self.survey_radius < min_orbit:
+                        self.get_logger().warn(
+                            f"clamping survey_radius {self.survey_radius:.1f}m -> "
+                            f"{min_orbit:.1f}m to orbit around {landmark!r} cleanly"
+                        )
+                        self.survey_radius = min_orbit
             self._mission_intent = intent
             self._aborted = False
             self._abort_reason = ""
@@ -236,11 +293,37 @@ class MissionExecutorNode(Node):
         prev_x, prev_y = 0.0, 0.0
         prev_heading = 0.0
 
+        # Build the obstacle list (in the drone-relative frame) BEFORE planning
+        # the transit so both the transit leg and the survey waypoints get
+        # repaired against the same set.
+        obstacles_relative = self._collect_relevant_obstacles()
+
         if (survey_cx, survey_cy) != (0.0, 0.0):
-            t, prev_x, prev_y, prev_heading = self._append_transit(
-                events, t, prev_x, prev_y, prev_heading,
-                survey_cx, survey_cy, "TRANSIT_OUT",
+            # Split the transit into ~3m segments, repair each waypoint
+            # against the obstacle list, then chain them as transit legs.
+            # A single straight line from takeoff to landmark would otherwise
+            # fly through any tree on the path.
+            transit_waypoints = self._segment_line(
+                (prev_x, prev_y), (survey_cx, survey_cy),
+                segment_m=3.0,
+                z=self.cruise_altitude,
             )
+            if obstacles_relative and transit_waypoints:
+                transit_waypoints, repairs = avoid_obstacles(transit_waypoints, obstacles_relative)
+                if repairs:
+                    self.get_logger().info(
+                        f"transit avoidance: pushed {repairs}/{len(transit_waypoints)} "
+                        f"transit waypoints out of obstacles"
+                    )
+            for i, (tx_, ty_, _) in enumerate(transit_waypoints):
+                label = "TRANSIT_OUT" if i == len(transit_waypoints) - 1 else f"TRANSIT_OUT_{i}"
+                t, prev_x, prev_y, prev_heading = self._append_transit(
+                    events, t, prev_x, prev_y, prev_heading,
+                    tx_, ty_, label,
+                )
+            # Final survey center lines up with the last transit waypoint
+            # (which may have been pushed out by avoidance).
+            survey_cx, survey_cy = prev_x, prev_y
 
         waypoints = generate(
             self.survey_pattern,
@@ -248,6 +331,14 @@ class MissionExecutorNode(Node):
             self.survey_radius,
             self.cruise_altitude,
         )
+
+        if obstacles_relative:
+            waypoints, repairs = avoid_obstacles(waypoints, obstacles_relative)
+            if repairs:
+                self.get_logger().info(
+                    f"obstacle avoidance: pushed {repairs}/{len(waypoints)} waypoints "
+                    f"out of {len(obstacles_relative)} known obstacles"
+                )
 
         for i, (wx, wy, _wz) in enumerate(waypoints):
             dx = wx - prev_x
@@ -276,10 +367,24 @@ class MissionExecutorNode(Node):
 
         # Return-to-takeoff transit if the survey was off-center (landmark mode).
         if (prev_x, prev_y) != (0.0, 0.0):
-            t, prev_x, prev_y, prev_heading = self._append_transit(
-                events, t, prev_x, prev_y, prev_heading,
-                0.0, 0.0, "TRANSIT_HOME",
+            home_segments = self._segment_line(
+                (prev_x, prev_y), (0.0, 0.0),
+                segment_m=3.0,
+                z=self.cruise_altitude,
             )
+            if obstacles_relative and home_segments:
+                home_segments, repairs = avoid_obstacles(home_segments, obstacles_relative)
+                if repairs:
+                    self.get_logger().info(
+                        f"return avoidance: pushed {repairs}/{len(home_segments)} "
+                        f"home-transit waypoints out of obstacles"
+                    )
+            for i, (tx_, ty_, _) in enumerate(home_segments):
+                label = "TRANSIT_HOME" if i == len(home_segments) - 1 else f"TRANSIT_HOME_{i}"
+                t, prev_x, prev_y, prev_heading = self._append_transit(
+                    events, t, prev_x, prev_y, prev_heading,
+                    tx_, ty_, label,
+                )
 
         # Hover-at-home: open-loop accumulates drift across the spiral; give
         # the drone a few seconds with zero command before descending so any
@@ -313,13 +418,15 @@ class MissionExecutorNode(Node):
         for (t_start, t_end, cmd, label) in self.schedule:
             if t_start <= elapsed < t_end:
                 self.cmd_pub.publish(cmd)
-                # Skip logging the per-waypoint micro-phases (YAW->n, FWD->n)
-                # and the transit yaw sub-phases — those are implementation
-                # detail. The transit forward legs (TRANSIT_OUT, TRANSIT_HOME)
-                # *do* log so operators see when the drone changed area.
+                # Skip logging the per-waypoint micro-phases (YAW->n, FWD->n),
+                # the transit yaw sub-phases, and intermediate transit waypoints
+                # (TRANSIT_OUT_0, TRANSIT_HOME_2 etc). Only the final TRANSIT_OUT
+                # / TRANSIT_HOME labels (no trailing index) log so operators see
+                # when the drone changed area.
                 noisy = (
                     label.startswith(("YAW", "FWD"))
                     or label.endswith("_YAW")
+                    or label.rsplit("_", 1)[-1].isdigit()
                 )
                 if label != self._last_phase and not noisy:
                     self.get_logger().info(f"phase: {label} (t={elapsed:.1f}s)")
@@ -361,6 +468,69 @@ class MissionExecutorNode(Node):
     def _on_pose(self, msg: Pose):
         self._last_pose = (msg.position.x, msg.position.y, msg.position.z)
 
+    def _on_looming(self, msg: String):
+        """Optical-flow looming alert -> emergency-land.
+
+        The detector itself is gated against YAW/CLIMB/DESCEND phases (it
+        suppresses publish during those). By the time a message reaches us,
+        we trust it and route through the existing abort path.
+        """
+        if not self.perception_backstop or self.schedule is None or self._aborted:
+            return
+        try:
+            payload = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        ttc = payload.get("ttc_s")
+        reason = f"looming detected (ttc={ttc}s) — emergency land"
+        abort_msg = String()
+        abort_msg.data = reason
+        # Re-use the standard abort path so the failure mode is identical to
+        # an operator abort (EMERGENCY_LAND_HOVER -> DESCEND -> FAILED).
+        self._on_abort(abort_msg)
+
+    def _on_obstacle_detection(self, msg: String):
+        """Large-and-centered YOLO non-person detection -> emergency-land."""
+        if not self.perception_backstop or self.schedule is None or self._aborted:
+            return
+        # Suppress during yaw/climb/descend — these phases generate big
+        # detections sliding across frame that aren't actually approaching.
+        suppressing_phases = {"CLIMB", "SETTLE", "PRE_DESCEND", "DESCEND", "STOP"}
+        if self._last_phase in suppressing_phases or (
+            self._last_phase and self._last_phase.endswith("_YAW")
+        ):
+            return
+        try:
+            payload = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        cls = payload.get("class")
+        score = payload.get("score")
+        reason = f"obstacle detected (class={cls!r} score={score}) — emergency land"
+        abort_msg = String()
+        abort_msg.data = reason
+        self._on_abort(abort_msg)
+
+    def _collect_relevant_obstacles(self):
+        """Return KNOWN_OBSTACLES filtered for this mission, in drone-relative XY.
+
+        Excludes the destination landmark (we want to orbit around it, not
+        avoid it). Excludes obstacles whose top is well below cruise altitude
+        (no collision risk). Translates each obstacle into the drone-relative
+        frame so distances match the planner's waypoint coords.
+        """
+        if not self.avoid_known:
+            return []
+        tx, ty = self.takeoff_world_xy
+        relevant = []
+        for name, (ox, oy, r, top) in KNOWN_OBSTACLES.items():
+            if name == self.survey_landmark:
+                continue
+            if not is_obstacle_relevant_at_altitude(top, self.cruise_altitude):
+                continue
+            relevant.append((ox - tx, oy - ty, r))
+        return relevant
+
     def _rth_audit(self):
         """Compute RTH error if pose feedback was available at start + end."""
         if self._takeoff_pose is None or self._last_pose is None:
@@ -375,6 +545,25 @@ class MissionExecutorNode(Node):
             "takeoff_pose_xyz": [round(v, 3) for v in self._takeoff_pose],
             "final_pose_xyz": [round(v, 3) for v in self._last_pose],
         }
+
+    @staticmethod
+    def _segment_line(start_xy, end_xy, segment_m, z):
+        """Split (start->end) into a list of waypoints ~segment_m apart, ending at end_xy.
+
+        Returns a list of (x, y, z). At least one waypoint (the endpoint) is
+        always returned so the caller can iterate without an empty-check.
+        """
+        x0, y0 = start_xy
+        x1, y1 = end_xy
+        dx, dy = x1 - x0, y1 - y0
+        distance = math.hypot(dx, dy)
+        if distance <= segment_m + 1e-6:
+            return [(x1, y1, z)]
+        n = max(1, int(math.ceil(distance / segment_m)))
+        return [
+            (x0 + dx * (i / n), y0 + dy * (i / n), z)
+            for i in range(1, n + 1)
+        ]
 
     def _append_transit(self, events, t, x0, y0, heading0, x1, y1, label):
         """Append a yaw + forward leg from (x0,y0) to (x1,y1). Returns updated t/state."""

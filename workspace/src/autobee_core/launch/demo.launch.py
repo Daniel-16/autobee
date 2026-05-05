@@ -87,6 +87,12 @@ def generate_launch_description():
         output="screen",
     )
 
+    looming_detector = Node(
+        package="autobee_perception",
+        executable="looming_detector_node",
+        output="screen",
+    )
+
     mission_logger = Node(
         package="autobee_core",
         executable="mission_logger_node",
@@ -151,6 +157,7 @@ def generate_launch_description():
         yolo_perception,
         crowd_analytics,
         anomaly_detection,
+        looming_detector,
         mission_logger,
         mission_executor,
         voice_group,

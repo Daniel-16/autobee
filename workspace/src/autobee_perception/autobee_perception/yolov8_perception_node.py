@@ -1,4 +1,20 @@
-"""Phase-3 perception: YOLOv8n on the drone camera, publishing detections, person count, anomaly flags."""
+"""Phase-3 perception: YOLOv8n on the drone camera.
+
+Publishes:
+  /perception/detections        vision_msgs/Detection2DArray (all classes, raw)
+  /perception/image_annotated   sensor_msgs/Image (debug visual)
+  /perception/person_count      std_msgs/Int32 (count of class 0)
+  /perception/event             std_msgs/String JSON (per-frame person summary)
+  /perception/anomaly           std_msgs/String (legacy single-frame breach)
+  /perception/obstacles         std_msgs/String JSON — the most threatening
+      non-person detection per frame (large + centred), used by mission_executor
+      as a collision-imminent backstop. Only published when a detection clears
+      the size + centredness thresholds; silent otherwise.
+
+YOLO is run unfiltered (the previous `classes=[0]` filter is removed) so
+non-person classes can feed obstacle detection. Person semantics on the
+existing channels are preserved by filtering at publish time.
+"""
 
 import json
 import os
@@ -27,16 +43,30 @@ class YoloPerceptionNode(Node):
         self.declare_parameter("image_topic", "/drone/camera/image_raw")
         self.declare_parameter("anomaly_threshold", 10)
         self.declare_parameter("yolo_config_dir", "/tmp/Ultralytics")
+        # Obstacle-channel thresholds: a non-person detection is published as
+        # a collision-imminent obstacle only if it meets ALL three.
+        self.declare_parameter("obstacle_min_size_frac", 0.06)   # >6% of frame area
+        self.declare_parameter("obstacle_max_centre_frac", 0.35) # |dx_centre|/W <= 0.35
+        self.declare_parameter("obstacle_min_score", 0.40)
 
         model_name = self.get_parameter("model").value
         self.conf = float(self.get_parameter("conf").value)
         image_topic = self.get_parameter("image_topic").value
         self.threshold = int(self.get_parameter("anomaly_threshold").value)
+        self.obs_min_size = float(self.get_parameter("obstacle_min_size_frac").value)
+        self.obs_max_centre = float(self.get_parameter("obstacle_max_centre_frac").value)
+        self.obs_min_score = float(self.get_parameter("obstacle_min_score").value)
         os.environ.setdefault("YOLO_CONFIG_DIR", self.get_parameter("yolo_config_dir").value)
 
         self.get_logger().info(f"Loading YOLO model: {model_name}")
         self.model = YOLO(model_name)
         self.bridge = CvBridge()
+        # Cache class id -> name mapping for human-readable obstacle alerts.
+        self._class_names = (
+            getattr(self.model, "names", None)
+            or getattr(self.model.model, "names", {})
+            or {}
+        )
 
         self.sub = self.create_subscription(Image, image_topic, self._on_image, 10)
         self.det_pub = self.create_publisher(Detection2DArray, "/perception/detections", 10)
@@ -44,6 +74,7 @@ class YoloPerceptionNode(Node):
         self.count_pub = self.create_publisher(Int32, "/perception/person_count", 10)
         self.anomaly_pub = self.create_publisher(String, "/perception/anomaly", 10)
         self.event_pub = self.create_publisher(String, "/perception/event", 10)
+        self.obstacle_pub = self.create_publisher(String, "/perception/obstacles", 10)
 
         self._frames = 0
         self._anomaly_active = False
@@ -57,15 +88,23 @@ class YoloPerceptionNode(Node):
 
     def _on_image(self, msg: Image):
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-        results = self.model.predict(
-            frame, conf=self.conf, verbose=False, classes=[PERSON_CLASS_COCO]
-        )
+        # YOLO is run UNFILTERED so non-person classes feed the obstacle
+        # backstop channel. Person semantics below are preserved by class id.
+        results = self.model.predict(frame, conf=self.conf, verbose=False)
         r = results[0]
+
+        height, width = frame.shape[:2]
+        frame_area = float(max(1, height * width))
 
         detections = Detection2DArray()
         detections.header = msg.header
         person_count = 0
         person_confs = []
+        # Track the most threatening non-person detection for the obstacle
+        # channel: threat = score * size_frac * centredness, cleared by
+        # min thresholds.
+        best_obstacle = None
+        best_threat = 0.0
         for box in r.boxes:
             cls_id = int(box.cls[0])
             conf = float(box.conf[0])
@@ -87,6 +126,37 @@ class YoloPerceptionNode(Node):
             if cls_id == PERSON_CLASS_COCO:
                 person_count += 1
                 person_confs.append(conf)
+                continue
+
+            # Non-person: evaluate as obstacle threat.
+            cx = (x1 + x2) / 2.0
+            size_frac = ((x2 - x1) * (y2 - y1)) / frame_area
+            centre_offset_frac = abs(cx - width / 2.0) / max(1.0, width / 2.0)
+            if (
+                conf >= self.obs_min_score
+                and size_frac >= self.obs_min_size
+                and centre_offset_frac <= self.obs_max_centre
+            ):
+                centredness = 1.0 - centre_offset_frac
+                threat = conf * size_frac * centredness
+                if threat > best_threat:
+                    best_threat = threat
+                    best_obstacle = {
+                        "class_id": cls_id,
+                        "class": self._class_names.get(cls_id, f"class_{cls_id}"),
+                        "score": round(conf, 3),
+                        "bbox": [round(x1, 1), round(y1, 1), round(x2, 1), round(y2, 1)],
+                        "size_frac": round(size_frac, 4),
+                        "centre_offset_frac": round(centre_offset_frac, 3),
+                        "threat": round(threat, 4),
+                        "frame_id": msg.header.frame_id or "drone/camera",
+                        "timestamp": self.get_clock().now().nanoseconds / 1e9,
+                    }
+
+        if best_obstacle is not None:
+            obs_msg = String()
+            obs_msg.data = json.dumps(best_obstacle)
+            self.obstacle_pub.publish(obs_msg)
 
         self.det_pub.publish(detections)
 

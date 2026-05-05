@@ -26,13 +26,22 @@ All autonomy nodes consume/produce a fixed topic graph so the simulator can be s
 - `/drone/imu` (`sensor_msgs/Imu`) — IMU
 - `/user_intent` (`std_msgs/String`) — natural-language command in
 - `/mission_command` (`std_msgs/String`, JSON) — LLM-emitted structured plan
-- `/perception/event` (`std_msgs/String`, JSON) — per-frame detection summary
+- `/perception/event` (`std_msgs/String`, JSON) — per-frame *person* detection summary (YOLO is now run unfiltered, but this channel keeps person-only semantics for backward compat)
+- `/perception/obstacles` (`std_msgs/String`, JSON) — most-threatening non-person YOLO detection per frame (large + centred); feeds the executor's collision backstop. Silent when no detection clears the size/centredness/score thresholds.
+- `/perception/looming` (`std_msgs/String`, JSON) — Lucas-Kanade optical-flow looming alert from `looming_detector_node`. Fires when median radial expansion ratio implies time-to-contact below `ttc_threshold_s` for `debounce_frames` consecutive frames. Suppressed during YAW/CLIMB/DESCEND/SETTLE phases via `/mission_status` gating.
 - `/perception/anomaly` (`std_msgs/String`) — single-frame threshold breach (legacy, raw)
 - `/crowd_analytics` (`std_msgs/String`, JSON) — temporal aggregation: peak/mean/median count, trend, rate, density label
 - `/anomaly_alert` (`std_msgs/String`, JSON) — typed anomalies (SURGE, DISPERSAL, SUSTAINED_HIGH, GATHERING) with severity
 - `/mission_report` (`std_msgs/String`) — final natural-language summary synthesised from analytics + alerts
 
-Operational envelope is clamped to Tello-class limits in `llm_agent_node`: radius 3..15 m, altitude 4..12 m.
+Operational envelope is clamped to Tello-class limits in `llm_agent_node`: radius 3..15 m, altitude 4..12 m. Default cruise altitude is 11 m so the survey clears all campus building tops (max 9 m at the hostel) plus a 1.5 m vertical safety margin.
+
+## Obstacle avoidance (two layers)
+
+1. **Geometric, primary.** `mission_executor_node` keeps a `KNOWN_OBSTACLES` table mirroring `campus.sdf` (8 buildings + 6 trees, each with safety radius and height). Before flying, it: (a) excludes the destination landmark from the avoidance set, (b) drops obstacles whose top is below `cruise_altitude - 1.5 m`, (c) splits the transit-out and transit-home legs into ~3 m segments and runs `survey_pattern_generator.avoid_obstacles()` on every waypoint, (d) clamps the survey radius up to `dst_safety_r + 1.5` so building-target orbits actually go *around* the building. Disabled with `avoid_known_obstacles:=false` (debug only).
+2. **Perception backstop, runtime.** Two channels can publish `/mission_abort`-equivalent emergency-land triggers: `looming_detector_node` (Lucas-Kanade optical flow on the central image region; expansion ratio → time-to-contact) and the un-filtered YOLO obstacle channel. Both are gated against YAW/CLIMB/DESCEND/SETTLE phases to suppress yaw-induced false positives. Disabled with `perception_backstop:=false`.
+
+The combination matters: geometric covers known/textureless targets the planner can foresee; looming covers unknown/dynamic obstacles the planner doesn't know about. Either alone leaves gaps.
 
 ## Architecture: host vs container
 
