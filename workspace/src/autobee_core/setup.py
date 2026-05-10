@@ -9,7 +9,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
-        ("share/" + package_name + "/launch", ["launch/demo.launch.py"]),
+        ("share/" + package_name + "/launch", ["launch/demo.launch.py", "launch/demo_tello.launch.py"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

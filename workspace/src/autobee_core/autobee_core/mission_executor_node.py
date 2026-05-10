@@ -98,7 +98,13 @@ class MissionExecutorNode(Node):
         super().__init__("mission_executor_node")
 
         self.declare_parameter("default_cruise_altitude_m", 11.0)
+        # Hard ceiling on cruise_altitude regardless of LLM/mission_command input.
+        # Outdoor: leave at default 100 (no effect). Indoor/Tello: set to e.g. 1.5.
+        self.declare_parameter("cruise_altitude_max_m", 100.0)
         self.declare_parameter("default_survey_radius_m", 6.0)
+        # Hard ceiling on survey_radius_m. Outdoor: leave at default 100 (no effect).
+        # Indoor/Tello: set to e.g. 1.5 so the LLM's 3..15m envelope gets shrunk.
+        self.declare_parameter("survey_radius_max_m", 100.0)
         self.declare_parameter("default_survey_pattern", "orbit")
         self.declare_parameter("max_xy_speed", 1.0)
         self.declare_parameter("max_z_speed", 0.6)
@@ -181,8 +187,20 @@ class MissionExecutorNode(Node):
 
         cruise = float(command.get(
             "altitude_m", self.get_parameter("default_cruise_altitude_m").value))
+        cruise_max = float(self.get_parameter("cruise_altitude_max_m").value)
+        if cruise > cruise_max:
+            self.get_logger().warn(
+                f"clamping cruise_altitude {cruise:.1f}m -> {cruise_max:.1f}m (cruise_altitude_max_m)"
+            )
+            cruise = cruise_max
         radius = float(command.get(
             "radius_m", self.get_parameter("default_survey_radius_m").value))
+        radius_max = float(self.get_parameter("survey_radius_max_m").value)
+        if radius > radius_max:
+            self.get_logger().warn(
+                f"clamping survey_radius {radius:.1f}m -> {radius_max:.1f}m (survey_radius_max_m)"
+            )
+            radius = radius_max
         pattern = str(command.get(
             "pattern", self.get_parameter("default_survey_pattern").value))
         intent = str(command.get("intent", ""))

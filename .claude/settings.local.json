@@ -42,7 +42,8 @@
       "Bash(git *)",
       "WebSearch",
       "WebFetch(domain:app.gazebosim.org)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(python3 *)"
     ]
   }
 }

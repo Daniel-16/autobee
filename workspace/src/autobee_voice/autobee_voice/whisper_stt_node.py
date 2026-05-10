@@ -118,10 +118,7 @@ class WhisperSTTNode(Node):
         block_ms = 30  # processing granularity
         block_samples = int(self.sample_rate * block_ms / 1000)
         silence_blocks_required = max(1, int(self.silence_ms / block_ms))
-        max_blocks = int(self.max_utterance_s * 1000 / block_ms)
-
-        # Pre-roll: keep ~300ms of audio before speech onset so the first
-        # syllable isn't clipped.
+        max_blocks = int(self.max_utterance_s * 1000 / block_ms)    
         preroll_blocks = int(300 / block_ms)
         preroll = collections.deque(maxlen=preroll_blocks)
 

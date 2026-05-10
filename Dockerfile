@@ -33,6 +33,9 @@ RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
 RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
     langchain langchain-google-genai google-generativeai
 
+RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
+    djitellopy
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libepoxy-dev libwayland-dev libxkbcommon-dev \
  && rm -rf /var/lib/apt/lists/*

@@ -1,0 +1,1 @@
+{"id": "T-09", "result": "FAIL", "failures": ["no /mission_command observed"], "mission_command": null, "final_status": null, "report_text": null, "phases": [], "anomaly_alerts": 0, "last_density": "low", "duration_s": 119.39491963386536}
