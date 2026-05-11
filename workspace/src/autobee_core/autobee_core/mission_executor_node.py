@@ -118,6 +118,11 @@ class MissionExecutorNode(Node):
         # Geometric obstacle avoidance against KNOWN_OBSTACLES (campus.sdf).
         # Set to false to fly the raw pattern (debug only).
         self.declare_parameter("avoid_known_obstacles", True)
+        # Whether named landmarks (main_gate, library, etc.) are real places
+        # the drone can transit to. False on indoor Tello flights — the
+        # campus.sdf coordinates are meaningless indoors and the executor
+        # would otherwise try to fly to a phantom XY several metres away.
+        self.declare_parameter("landmarks_enabled", True)
         # Optical-flow looming + YOLO obstacle detection backstop. Lets a
         # perception trigger publish /mission_abort even mid-pattern.
         self.declare_parameter("perception_backstop", True)
@@ -127,6 +132,7 @@ class MissionExecutorNode(Node):
         )
         self.avoid_known = bool(self.get_parameter("avoid_known_obstacles").value)
         self.perception_backstop = bool(self.get_parameter("perception_backstop").value)
+        self.landmarks_enabled = bool(self.get_parameter("landmarks_enabled").value)
 
         self.max_xy_speed = float(self.get_parameter("max_xy_speed").value)
         self.max_z_speed = float(self.get_parameter("max_z_speed").value)
@@ -214,6 +220,15 @@ class MissionExecutorNode(Node):
                 f"unknown landmark {landmark!r}; falling back to local-area survey"
             )
             landmark = None
+        if landmark is not None and not self.landmarks_enabled:
+            # Indoor / Tello: the campus.sdf XY for this landmark is meaningless.
+            # Degrade to a local survey at takeoff origin so the drone doesn't
+            # try to fly several metres to a phantom coordinate.
+            self.get_logger().warn(
+                f"landmarks_enabled=false; ignoring landmark {landmark!r} "
+                f"and surveying at takeoff origin"
+            )
+            landmark = None
 
         try:
             self.cruise_altitude = cruise
@@ -284,7 +299,56 @@ class MissionExecutorNode(Node):
         new_events.append((elapsed + 1.0 + descend_dur, float("inf"), Twist(), "FAILED"))
         self.schedule = new_events
 
+    def _build_yaw_only_schedule(self):
+        """scan_in_place: climb -> 360 deg yaw -> descend -> land. No translation."""
+        events = []
+        t = 0.0
+
+        climb_dur = self.cruise_altitude / self.max_z_speed
+        climb = Twist(); climb.linear.z = self.max_z_speed
+        events.append((t, t + climb_dur, climb, "CLIMB"))
+        t += climb_dur
+
+        events.append((t, t + self.settle_time, Twist(), "SETTLE"))
+        t += self.settle_time
+
+        yaw_dur = (2.0 * math.pi) / self.max_yaw_rate
+        yaw = Twist(); yaw.angular.z = self.max_yaw_rate
+        events.append((t, t + yaw_dur, yaw, "YAW_360"))
+        t += yaw_dur
+
+        events.append((t, t + self.settle_time, Twist(), "SETTLE_POST_YAW"))
+        t += self.settle_time
+
+        descend_dur = self.cruise_altitude / self.max_z_speed
+        descend = Twist(); descend.linear.z = -self.max_z_speed
+        events.append((t, t + descend_dur, descend, "DESCEND"))
+        t += descend_dur
+
+        events.append((t, t + 2.0, Twist(), "STOP"))
+        t += 2.0
+        events.append((t, float("inf"), Twist(), "DONE"))
+        return events, t
+
+    def _build_land_now_schedule(self):
+        """return_home: when the drone is grounded this is a 1s no-op that
+        completes the mission cleanly. When airborne, /mission_abort is the
+        right entry point — return_home as a fresh /mission_command implies
+        the drone has nothing to do."""
+        events = []
+        t = 0.0
+        events.append((t, t + 1.0, Twist(), "AT_HOME"))
+        t += 1.0
+        events.append((t, float("inf"), Twist(), "DONE"))
+        return events, t
+
     def _build_schedule(self):
+        # Skill-specific schedule shapes that aren't orbit/spiral.
+        if self.survey_pattern == "yaw_only":
+            return self._build_yaw_only_schedule()
+        if self.survey_pattern == "land_now":
+            return self._build_land_now_schedule()
+
         events = []
         t = 0.0
 
@@ -441,8 +505,12 @@ class MissionExecutorNode(Node):
                 # (TRANSIT_OUT_0, TRANSIT_HOME_2 etc). Only the final TRANSIT_OUT
                 # / TRANSIT_HOME labels (no trailing index) log so operators see
                 # when the drone changed area.
-                noisy = (
-                    label.startswith(("YAW", "FWD"))
+                # Per-waypoint micro-phases ("YAW->3", "FWD->5", "TRANSIT_OUT_3_YAW",
+                # "TRANSIT_OUT_2") are noise. Skill-level phases that share a prefix
+                # ("YAW_360", "SETTLE_POST_YAW", "AT_HOME") are not — keep them visible.
+                _SKILL_LEVEL_PHASES = {"YAW_360", "SETTLE_POST_YAW", "AT_HOME"}
+                noisy = label not in _SKILL_LEVEL_PHASES and (
+                    label.startswith(("YAW->", "FWD->"))
                     or label.endswith("_YAW")
                     or label.rsplit("_", 1)[-1].isdigit()
                 )
@@ -455,12 +523,19 @@ class MissionExecutorNode(Node):
                             "completed", phase="DONE", elapsed=elapsed,
                             extra=self._rth_audit(),
                         )
+                        # Mission is finished — drop the schedule so the next
+                        # /mission_command starts from a clean state instead of
+                        # racing against a still-active DONE-loop.
+                        self.schedule = None
+                        self._last_phase = None
                     elif label == "FAILED":
                         self._publish_status(
                             "aborted", phase="FAILED", elapsed=elapsed,
                             reason=self._abort_reason or "unknown",
                             extra=self._rth_audit(),
                         )
+                        self.schedule = None
+                        self._last_phase = None
                     else:
                         self._publish_status("phase", phase=label, elapsed=elapsed)
                 return
@@ -513,7 +588,10 @@ class MissionExecutorNode(Node):
             return
         # Suppress during yaw/climb/descend — these phases generate big
         # detections sliding across frame that aren't actually approaching.
-        suppressing_phases = {"CLIMB", "SETTLE", "PRE_DESCEND", "DESCEND", "STOP"}
+        suppressing_phases = {
+            "CLIMB", "SETTLE", "PRE_DESCEND", "DESCEND", "STOP",
+            "YAW_360", "SETTLE_POST_YAW", "AT_HOME",
+        }
         if self._last_phase in suppressing_phases or (
             self._last_phase and self._last_phase.endswith("_YAW")
         ):

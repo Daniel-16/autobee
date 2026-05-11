@@ -28,10 +28,32 @@ from vision_msgs.msg import (
     Detection2DArray,
     ObjectHypothesisWithPose,
 )
+import cv2
 from cv_bridge import CvBridge
 from ultralytics import YOLO
 
 PERSON_CLASS_COCO = 0
+
+
+def _draw_crowd_hud(frame, person_count: int, density: str):
+    """Overlay a crowd-analytics headline strip on the YOLO-annotated frame.
+
+    Frames published to /perception/image_annotated are the operator's primary
+    visual signal during a mission, and "PEOPLE: N" plus density is the
+    headline for crowd-analytics demos.
+    """
+    colour = {"low": (0, 200, 0), "medium": (0, 200, 230), "high": (40, 60, 230)}.get(
+        density, (200, 200, 200)
+    )
+    h, w = frame.shape[:2]
+    bar_h = max(28, int(h * 0.07))
+    cv2.rectangle(frame, (0, 0), (w, bar_h), (20, 20, 20), thickness=-1)
+    cv2.putText(
+        frame, f"PEOPLE: {person_count}    density: {density.upper()}",
+        (10, int(bar_h * 0.72)),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.7, colour, 2, cv2.LINE_AA,
+    )
+    return frame
 
 
 class YoloPerceptionNode(Node):
@@ -160,7 +182,15 @@ class YoloPerceptionNode(Node):
 
         self.det_pub.publish(detections)
 
+        if person_count <= 3:
+            density = "low"
+        elif person_count <= 8:
+            density = "medium"
+        else:
+            density = "high"
+
         annotated = r.plot()
+        annotated = _draw_crowd_hud(annotated, person_count, density)
         ann_msg = self.bridge.cv2_to_imgmsg(annotated, encoding="bgr8")
         ann_msg.header = msg.header
         self.ann_pub.publish(ann_msg)
@@ -168,13 +198,6 @@ class YoloPerceptionNode(Node):
         count_msg = Int32()
         count_msg.data = person_count
         self.count_pub.publish(count_msg)
-
-        if person_count <= 3:
-            density = "low"
-        elif person_count <= 8:
-            density = "medium"
-        else:
-            density = "high"
         avg_conf = round(sum(person_confs) / len(person_confs), 2) if person_confs else 0.0
 
         event = {

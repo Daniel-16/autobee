@@ -56,6 +56,9 @@ def generate_launch_description():
     # Looming + YOLO backstop stays ON as the runtime safety net.
     avoid_known = DeclareLaunchArgument("avoid_known_obstacles", default_value="false")
     perception_backstop = DeclareLaunchArgument("perception_backstop", default_value="true")
+    # Named landmarks (library/admin/etc.) don't exist indoors — refuse landmark
+    # transits so detect_anomaly_buildings degrades to a local hover.
+    landmarks_enabled = DeclareLaunchArgument("landmarks_enabled", default_value="false")
 
     tello_driver = Node(
         package="autobee_tello",
@@ -110,6 +113,7 @@ def generate_launch_description():
                     "max_yaw_rate":              LaunchConfiguration("max_yaw_rate"),
                     "avoid_known_obstacles":     LaunchConfiguration("avoid_known_obstacles"),
                     "perception_backstop":       LaunchConfiguration("perception_backstop"),
+                    "landmarks_enabled":         LaunchConfiguration("landmarks_enabled"),
                 }],
             ),
         ],
@@ -142,7 +146,7 @@ def generate_launch_description():
         cruise_alt_max, default_cruise_alt, default_radius, radius_max,
         max_xy_speed, max_z_speed, max_yaw_rate,
         linear_max, angular_max,
-        avoid_known, perception_backstop,
+        avoid_known, perception_backstop, landmarks_enabled,
         tello_driver,
         llm_agent,
         report,

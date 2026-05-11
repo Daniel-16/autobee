@@ -38,24 +38,30 @@ except ImportError:
 
 REPORT_PROMPT = """You are AutoBee's report writer. AutoBee just finished an autonomous surveillance flight. Write a SHORT (2-4 sentence) natural-language report to the non-pilot operator who sent the original request.
 
-Guidelines:
-- Speak in plain conversational English, no markdown
-- Anchor your report to the original intent (what the user actually asked about)
-- If a "landmark" is set in the input, name the location in plain English (e.g. "convocation_ground" -> "the convocation ground", "main_gate" -> "the main gate", "library" -> "the library entrance area", "admin" -> "the administration block")
-- If "landmark" is null, refer to the area as "this area" or "your current location" -- do NOT fabricate a location
-- If "outcome" is "aborted" or "failed", lead with that fact and the reason; analytics are secondary
-- Be specific with numbers: peak person count, dominant density level
-- If no people were detected, say so clearly -- do not invent observations
-- If structured anomalies are present, lead with the highest-severity one and use its description verbatim
-- If the final_analytics show a clear trend (rising/falling), mention it
-- Tone: factual, calm, like a security operator briefing
+The mission's "skill" tells you what to LEAD with:
+  - hover_around_me / quick_survey / sweep_area / scan_in_place:
+      Lead with crowd density: peak person count + density level. Mention any anomalies after.
+  - count_people:
+      Lead with the peak person count and (if available) trend. Be precise with numbers.
+  - detect_anomaly_buildings:
+      Lead with anomaly alerts ordered by severity (use the highest-severity alert's description verbatim).
+      If anomalies is empty: say "no anomalies detected at <landmark>" or equivalent. Crowd numbers are secondary here.
+
+General rules:
+- Plain conversational English. No markdown. No preamble. No quotes.
+- Translate landmark identifiers to plain English: "convocation_ground" -> "the convocation ground", "main_gate" -> "the main gate", "library" -> "the library entrance", "admin" -> "the administration block".
+- If "landmark" is null, refer to the area as "your current location" -- do NOT invent a place.
+- If "outcome" is "aborted" or "failed": lead with that fact and the reason. Analytics are secondary.
+- If "frames_observed" == 0 or peak_person_count == 0: say so explicitly. Do not invent observations.
+- Tone: factual, calm, security-operator briefing.
 
 Input JSON describes the mission outcome:
 {{
+  "skill": "<skill name>",
   "intent": "<original user request>",
   "landmark": "<landmark id>" | null,
   "outcome": "completed" | "aborted" | "failed",
-  "terminal_phase": "<last phase reached>",
+  "terminal_phase": "<last phase>",
   "failure_reason": "<reason if aborted/failed>",
   "frames_observed": <int>,
   "peak_person_count": <int>,
@@ -66,8 +72,15 @@ Input JSON describes the mission outcome:
   "duration_s": <float>
 }}
 
-Reply with ONLY the report text. No JSON, no preamble, no quotes around the message.
+Reply with ONLY the report text.
 """
+
+# Skill-specific deterministic templates. These skip Gemini entirely because
+# their content doesn't benefit from generative phrasing.
+DETERMINISTIC_REPORTS = {
+    "return_home": "Returned to base. Mission ended cleanly.",
+    "abort":       "Mission aborted at operator request.",
+}
 
 
 class ReportNode(Node):
@@ -144,6 +157,7 @@ class ReportNode(Node):
             return
         self._mission_active = True
         self._mission_intent = str(cmd.get("intent", ""))
+        self._mission_skill = str(cmd.get("skill", "")) or None
         landmark = cmd.get("landmark")
         self._mission_landmark = (
             str(landmark).strip().lower() if isinstance(landmark, str) and landmark.strip() else None
@@ -238,6 +252,7 @@ class ReportNode(Node):
             terminal_phase = ""
 
         summary = {
+            "skill": getattr(self, "_mission_skill", None),
             "intent": self._mission_intent,
             "landmark": getattr(self, "_mission_landmark", None),
             "outcome": outcome,
@@ -258,7 +273,12 @@ class ReportNode(Node):
         summary_json = json.dumps(summary)
         self.get_logger().info(f"mission summary: {summary_json}")
 
-        report_text = self._synthesize_report(summary_json)
+        # Deterministic short skills skip Gemini for both speed and reproducibility.
+        skill = summary.get("skill")
+        report_text = DETERMINISTIC_REPORTS.get(skill)
+        if report_text is None:
+            report_text = self._synthesize_report(summary_json)
+
         if report_text:
             out = String()
             out.data = report_text
