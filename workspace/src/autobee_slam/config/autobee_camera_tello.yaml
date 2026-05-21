@@ -1,0 +1,59 @@
+%YAML:1.0
+
+# ORB-SLAM3 settings for DJI Tello camera (960x720 video stream).
+#
+# *** THESE ARE APPROXIMATE VALUES — run a checkerboard calibration before
+#     serious use. See PRD §12 and autobee_slam/README.md for the procedure. ***
+#
+# Approximate intrinsics derived from published Tello calibration papers
+# (Djerrab et al., and others) for 960x720 resolution.  Distortion
+# coefficients are left as zero; the Tello has mild barrel distortion
+# (k1≈-0.02) but using uncalibrated distortion values risks worse tracking
+# than assuming a pure pinhole model.
+#
+# After calibration, replace fx/fy/cx/cy/k1/k2/p1/p2 with your measured
+# values and set Camera.RGB to 0 (Tello streams BGR via djitellopy/OpenCV).
+
+File.version: "1.0"
+
+Camera.type: "PinHole"
+Camera1.fx: 938.1
+Camera1.fy: 937.0
+Camera1.cx: 480.0
+Camera1.cy: 360.0
+
+# Distortion — set to 0 until a real calibration is run.
+Camera1.k1: 0.0
+Camera1.k2: 0.0
+Camera1.p1: 0.0
+Camera1.p2: 0.0
+
+Camera.width: 960
+Camera.height: 720
+# djitellopy camera_fps param in demo_tello.launch.py defaults to 10 Hz.
+Camera.fps: 10
+# djitellopy streams BGR; ORB-SLAM3 Camera.RGB=0 means the input is BGR.
+Camera.RGB: 0
+
+# --------------------------------------------------------------------------
+# ORB feature extractor — tuned for CPU-only inference at 10 FPS
+# --------------------------------------------------------------------------
+ORBextractor.nFeatures: 1000
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+# --------------------------------------------------------------------------
+# Viewer (only used when use_viewer:=true)
+# --------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -1.8
+Viewer.ViewpointF: 500.0

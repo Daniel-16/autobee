@@ -21,6 +21,12 @@ from launch_ros.actions import Node
 
 
 DEFAULT_VOCAB = "/opt/autobee/third_party/ORB_SLAM3/Vocabulary/ORBvoc.txt"
+_ORB_ROOT = "/opt/autobee/third_party/ORB_SLAM3"
+_SLAM_LD_PATH = ":".join([
+    f"{_ORB_ROOT}/lib",
+    f"{_ORB_ROOT}/Thirdparty/DBoW2/lib",
+    f"{_ORB_ROOT}/Thirdparty/g2o/lib",
+])
 
 
 def generate_launch_description():
@@ -53,5 +59,11 @@ def generate_launch_description():
                 "settings_path": settings,
                 "use_viewer": use_viewer,
             }],
+            additional_env={
+                # Safety net: set LD_LIBRARY_PATH even if the rpath baked at
+                # build time doesn't survive the colcon install symlink chain.
+                "LD_LIBRARY_PATH": _SLAM_LD_PATH + ":"
+                    + os.environ.get("LD_LIBRARY_PATH", ""),
+            },
         ),
     ])

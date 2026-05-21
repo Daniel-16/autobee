@@ -43,7 +43,8 @@
       "WebSearch",
       "WebFetch(domain:app.gazebosim.org)",
       "WebFetch(domain:github.com)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(grep -E \"^/home/daniel-toba/Documents/AUTOBEE/workspace/src/[^/]+$\")"
     ]
   }
 }

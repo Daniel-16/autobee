@@ -39,6 +39,23 @@ def generate_launch_description():
         description="Bring up ORB-SLAM3 wrapper for /drone/pose feedback.",
     )
 
+    try:
+        _default_tello_yaml = os.path.join(
+            get_package_share_directory("autobee_slam"), "config",
+            "autobee_camera_tello.yaml"
+        )
+    except PackageNotFoundError:
+        _default_tello_yaml = ""
+
+    slam_settings_path_arg = DeclareLaunchArgument(
+        "slam_settings_path", default_value=_default_tello_yaml,
+        description=(
+            "ORB-SLAM3 camera settings YAML to use when slam:=true. "
+            "Defaults to the Tello YAML (approximate intrinsics — "
+            "run a checkerboard calibration and point here for accuracy)."
+        ),
+    )
+
     # Indoor flight envelope. Conservative defaults.
     cruise_alt_max = DeclareLaunchArgument("cruise_altitude_max_m", default_value="1.5")
     default_cruise_alt = DeclareLaunchArgument("default_cruise_altitude_m", default_value="1.2")
@@ -133,6 +150,9 @@ def generate_launch_description():
         )
         slam_group = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(slam_launch_path),
+            launch_arguments={
+                "settings_path": LaunchConfiguration("slam_settings_path"),
+            }.items(),
             condition=IfCondition(LaunchConfiguration("slam")),
         )
     except PackageNotFoundError:
@@ -142,7 +162,7 @@ def generate_launch_description():
         )
 
     return LaunchDescription([
-        voice_arg, slam_arg,
+        voice_arg, slam_arg, slam_settings_path_arg,
         cruise_alt_max, default_cruise_alt, default_radius, radius_max,
         max_xy_speed, max_z_speed, max_yaw_rate,
         linear_max, angular_max,

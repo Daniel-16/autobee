@@ -36,6 +36,22 @@ RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
 RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
     djitellopy
 
+# Voice I/O deps + dotenv for API key loading
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    portaudio19-dev libsndfile1 \
+    mpg123 ffmpeg espeak libespeak-dev \
+    ros-humble-cv-bridge \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
+    python-dotenv sounddevice
+
+RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
+    openai-whisper
+
+RUN pip3 install --no-cache-dir --default-timeout=300 --retries 10 \
+    gtts pyttsx3
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libepoxy-dev libwayland-dev libxkbcommon-dev \
  && rm -rf /var/lib/apt/lists/*

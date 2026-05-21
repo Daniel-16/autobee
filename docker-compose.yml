@@ -20,6 +20,13 @@ services:
       - ./workspace:/root/autobee_ws
       - ./scripts:/root/scripts:ro
       - ~/.gitconfig:/root/.gitconfig:ro
+      # Expose the repo root so /workspaces/AUTOBEE/.env is accessible
+      # (same path the devcontainer uses) — required for GOOGLE_API_KEY.
+      - .:/workspaces/AUTOBEE:ro
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - audio
     stdin_open: true
     tty: true
     command: /bin/bash

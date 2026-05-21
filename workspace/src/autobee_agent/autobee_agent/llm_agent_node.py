@@ -153,6 +153,24 @@ User: "come back to base"
 
 User: "stop now"
 {{"skill":"abort","intent":"emergency abort","params":{{}}}}
+
+User: "let me know if this place is overcrowded"
+{{"skill":"count_people","intent":"local crowd density check","params":{{}}}}
+
+User: "is this place too crowded?"
+{{"skill":"count_people","intent":"local headcount and crowd assessment","params":{{}}}}
+
+User: "are there too many people around here?"
+{{"skill":"count_people","intent":"headcount check","params":{{}}}}
+
+User: "scan the area for crowds"
+{{"skill":"sweep_area","intent":"comprehensive crowd scan","params":{{}}}}
+
+User: "Return to base immediately"
+{{"skill":"return_home","intent":"return to main gate and land","params":{{"landmark":"main_gate"}}}}
+
+User: "fly back to base"
+{{"skill":"return_home","intent":"return to main gate","params":{{"landmark":"main_gate"}}}}
 """
 
 
@@ -273,10 +291,15 @@ class LLMAgentNode(Node):
         landmark = raw_landmark or defaults.get("force_landmark")
 
         if defaults.get("needs_landmark") and landmark is None:
-            self.get_logger().error(
-                f"skill={skill} requires a landmark; got none. Refusing to plan."
+            # LLM chose a landmark-required skill but didn't name one. Fall back
+            # to count_people (best local-area skill) rather than hard-refusing —
+            # a local survey is always better than a silent failure.
+            self.get_logger().warn(
+                f"skill={skill} requires a landmark but none given; "
+                f"falling back to count_people for local-area survey"
             )
-            return None
+            skill = "count_people"
+            defaults = SKILL_DEFAULTS[skill]
 
         # Radius/altitude: user-provided overrides skill defaults; both then
         # clamped to the Tello-class envelope. Indoor caps apply at executor.
