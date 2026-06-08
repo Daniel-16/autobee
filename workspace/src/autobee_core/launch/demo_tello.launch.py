@@ -90,6 +90,22 @@ def generate_launch_description():
         }],
     )
 
+    # Feedback contract: Tello telemetry -> /drone/odom (real half).
+    tello_odometry = Node(
+        package="autobee_control", executable="tello_odometry_node", output="screen",
+    )
+    # Reactive inner loop: /drone/goal + /drone/odom -> /drone/cmd_vel.
+    # Indoor speed envelope mirrors the executor's conservative limits.
+    flight_controller = Node(
+        package="autobee_control", executable="flight_controller_node", output="screen",
+        parameters=[{
+            "max_xy_speed":  LaunchConfiguration("max_xy_speed"),
+            "max_z_speed":   LaunchConfiguration("max_z_speed"),
+            "max_yaw_rate":  LaunchConfiguration("max_yaw_rate"),
+            "avoidance_enabled": LaunchConfiguration("perception_backstop"),
+        }],
+    )
+
     llm_agent = Node(
         package="autobee_agent", executable="llm_agent_node", output="screen",
     )
@@ -133,10 +149,7 @@ def generate_launch_description():
                     "default_survey_radius_m":   LaunchConfiguration("default_survey_radius_m"),
                     "survey_radius_max_m":       LaunchConfiguration("survey_radius_max_m"),
                     "max_xy_speed":              LaunchConfiguration("max_xy_speed"),
-                    "max_z_speed":               LaunchConfiguration("max_z_speed"),
-                    "max_yaw_rate":              LaunchConfiguration("max_yaw_rate"),
                     "avoid_known_obstacles":     LaunchConfiguration("avoid_known_obstacles"),
-                    "perception_backstop":       LaunchConfiguration("perception_backstop"),
                     "landmarks_enabled":         LaunchConfiguration("landmarks_enabled"),
                 }],
             ),
@@ -175,6 +188,8 @@ def generate_launch_description():
         linear_max, angular_max,
         avoid_known, perception_backstop, landmarks_enabled,
         tello_driver,
+        tello_odometry,
+        flight_controller,
         llm_agent,
         report,
         yolo_perception,

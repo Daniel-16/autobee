@@ -54,6 +54,10 @@ class TelloDriver(Node):
         self.declare_parameter("angular_max_rps", 1.0)
         self.declare_parameter("camera_fps", 10.0)
         self.declare_parameter("imu_hz", 10.0)
+        # State drives /drone/odom dead-reckoning + closed-loop feedback, so it
+        # must run fast enough to integrate (1 Hz was fine for a status HUD but
+        # far too coarse for control). The Tello broadcasts state at ~10 Hz.
+        self.declare_parameter("state_hz", 10.0)
         self.declare_parameter("min_battery_pct", 25)
         self.declare_parameter("cmd_vel_timeout_s", 1.0)
         self.declare_parameter("auto_takeoff_on_first_cmd", True)
@@ -62,6 +66,7 @@ class TelloDriver(Node):
         self.angular_max = float(self.get_parameter("angular_max_rps").value)
         cam_fps = float(self.get_parameter("camera_fps").value)
         imu_hz = float(self.get_parameter("imu_hz").value)
+        state_hz = float(self.get_parameter("state_hz").value)
         min_batt = int(self.get_parameter("min_battery_pct").value)
         self.cmd_vel_timeout = float(self.get_parameter("cmd_vel_timeout_s").value)
         self.auto_takeoff = bool(self.get_parameter("auto_takeoff_on_first_cmd").value)
@@ -92,7 +97,7 @@ class TelloDriver(Node):
         self.create_timer(1.0 / cam_fps, self._publish_frame)
         self.create_timer(1.0 / imu_hz, self._publish_imu)
         self.create_timer(0.1, self._safety_tick)
-        self.create_timer(1.0, self._publish_state)
+        self.create_timer(1.0 / state_hz, self._publish_state)
 
         self._airborne = False
         self._last_cmd_time = 0.0

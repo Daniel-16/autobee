@@ -25,4 +25,10 @@ def generate_launch_description():
                 "auto_takeoff_on_first_cmd": LaunchConfiguration("auto_takeoff_on_first_cmd"),
             }],
         ),
+        # Real half of the feedback contract: /drone/state -> /drone/odom.
+        Node(
+            package="autobee_control",
+            executable="tello_odometry_node",
+            output="screen",
+        ),
     ])

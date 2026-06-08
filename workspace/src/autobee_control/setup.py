@@ -19,6 +19,9 @@ setup(
     entry_points={
         "console_scripts": [
             "patrol_node = autobee_control.patrol_node:main",
+            "tello_odometry_node = autobee_control.tello_odometry_node:main",
+            "sim_odometry_node = autobee_control.sim_odometry_node:main",
+            "flight_controller_node = autobee_control.flight_controller_node:main",
         ],
     },
 )

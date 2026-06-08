@@ -51,7 +51,8 @@
       "Bash(rsvg-convert -f pdf -o mission_phases.pdf mission_phases.svg)",
       "Bash(rsvg-convert -f png -z 2.0 -o mission_phases.png mission_phases.svg)",
       "Bash(rsvg-convert -f pdf -o docs/figures/acceptance_summary.pdf docs/figures/acceptance_summary.svg)",
-      "Bash(rsvg-convert -f png -z 2 -o docs/figures/acceptance_summary.png docs/figures/acceptance_summary.svg)"
+      "Bash(rsvg-convert -f png -z 2 -o docs/figures/acceptance_summary.png docs/figures/acceptance_summary.svg)",
+      "Bash(claude update *)"
     ]
   }
 }

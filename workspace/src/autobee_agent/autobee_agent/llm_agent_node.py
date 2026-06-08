@@ -174,6 +174,38 @@ User: "fly back to base"
 """
 
 
+# Tactical decision vocabulary — MUST match mission_executor_node._on_directive.
+TACTICAL_ACTIONS = (
+    "continue", "hold", "skip_goal", "climb", "divert", "rth", "abort",
+)
+
+TACTICAL_PROMPT = """You are AutoBee's in-flight tactical decision-maker. AutoBee is an autonomous surveillance drone (DJI Tello class) executing a mission. The executive layer has PAUSED the mission and escalated an event because a deterministic rule could not resolve it. You decide the single next action. The drone is hovering in place while it waits for you.
+
+Event types you will see:
+  - "path_blocked"  : reactive avoidance could not clear an obstacle on the current goal.
+  - "goal_timeout"  : the drone failed to reach a waypoint in time (drift, wind, or an obstruction).
+  - "anomaly"       : perception flagged a high-severity crowd anomaly (SURGE/GATHERING/etc).
+
+Available actions (use the EXACT name as "action"):
+  - "continue"  : re-attempt the current goal as-is.
+  - "hold"      : hover and wait, then continue. params: {{"hold_s": <seconds>}}.
+  - "skip_goal" : abandon the current waypoint, advance to the next.
+  - "climb"     : raise the remaining flight altitude to fly over an obstacle. params: {{"delta_alt_m": <metres>}}.
+  - "divert"    : abandon the rest of the survey, return to base and land.
+  - "rth"       : return to base and land (mission essentially complete / unsafe to continue).
+  - "abort"     : emergency land in place immediately (imminent danger only).
+
+Guidance:
+  - path_blocked: prefer "climb" (2-3 m) to clear a low obstacle; if it has already been blocked repeatedly, "divert". Reserve "abort" for imminent collision with no safe vertical escape.
+  - goal_timeout: "hold" briefly then continue if likely transient (drift); "rth" if the drone seems stuck.
+  - anomaly: this is a SURVEILLANCE drone — a detected anomaly is mission-relevant data. Prefer "hold" to gather more footage, or "continue". Only "rth" if the situation looks unsafe for the drone.
+  - Favour completing the mission safely over aborting. Abort is the last resort.
+
+Output JSON only (no prose, no markdown fences):
+{{"action": "<one of the actions>", "params": {{}}, "reason": "<one short sentence>"}}
+"""
+
+
 class LLMAgentNode(Node):
     def __init__(self):
         super().__init__("llm_agent_node")
@@ -181,11 +213,16 @@ class LLMAgentNode(Node):
         self.declare_parameter("model", "gemini-2.5-flash")
         self.model_name = str(self.get_parameter("model").value)
 
+        self._tactical = None
         self._client = self._init_llm()
 
         self.cmd_pub = self.create_publisher(String, "/mission_command", 10)
         self.abort_pub = self.create_publisher(String, "/mission_abort", 10)
+        self.directive_pub = self.create_publisher(String, "/mission_directive", 10)
         self.create_subscription(String, "/user_intent", self._on_intent, 10)
+        # Tactical loop: the executive escalates mid-mission events here and
+        # blocks until we answer on /mission_directive (deliberative layer).
+        self.create_subscription(String, "/mission_event", self._on_event, 10)
 
         if self._client is None:
             self.get_logger().fatal(
@@ -221,6 +258,11 @@ class LLMAgentNode(Node):
             ("system", SYSTEM_PROMPT),
             ("human", "{user_input}"),
         ])
+        tactical_prompt = ChatPromptTemplate.from_messages([
+            ("system", TACTICAL_PROMPT),
+            ("human", "{event}"),
+        ])
+        self._tactical = tactical_prompt | llm | JsonOutputParser()
         return prompt | llm | JsonOutputParser()
 
     def _on_intent(self, msg: String):
@@ -254,6 +296,70 @@ class LLMAgentNode(Node):
         out = String(data=json.dumps(cmd))
         self.cmd_pub.publish(out)
         self.get_logger().info(f"skill={skill} → mission: {out.data}")
+
+    # ---------- tactical loop (mid-mission decisions) ----------
+
+    def _on_event(self, msg: String):
+        try:
+            event = json.loads(msg.data)
+        except json.JSONDecodeError:
+            self.get_logger().error("invalid JSON on /mission_event")
+            return
+        event_id = event.get("event_id")
+        event_type = event.get("event_type", "unknown")
+        self.get_logger().warn(f"tactical event {event_id!r}: {event_type}")
+
+        decision = self._tactical_decide(event)
+        if decision is None:
+            decision = self._fallback_directive(event_type)
+            self.get_logger().warn(f"using rule-based fallback directive: {decision}")
+
+        directive = {
+            "event_id": event_id,
+            "action": decision["action"],
+            "params": decision.get("params", {}),
+            "reason": decision.get("reason", ""),
+        }
+        self.directive_pub.publish(String(data=json.dumps(directive)))
+        self.get_logger().warn(
+            f"directive -> {directive['action']} ({directive['reason']})"
+        )
+
+    def _tactical_decide(self, event):
+        if self._tactical is None:
+            return None
+        try:
+            decision = self._tactical.invoke({"event": json.dumps(event)})
+        except Exception as e:
+            self.get_logger().error(f"tactical LLM call failed: {e}")
+            return None
+        if not isinstance(decision, dict):
+            return None
+        action = str(decision.get("action", "")).lower()
+        if action not in TACTICAL_ACTIONS:
+            self.get_logger().error(f"LLM returned invalid action {action!r}")
+            return None
+        decision["action"] = action
+        if not isinstance(decision.get("params"), dict):
+            decision["params"] = {}
+        return decision
+
+    @staticmethod
+    def _fallback_directive(event_type):
+        """Safe rule-based decision when the LLM is unavailable or invalid.
+
+        Keeps the executive from stalling on a missing directive.
+        """
+        if event_type == "path_blocked":
+            return {"action": "climb", "params": {"delta_alt_m": 2.5},
+                    "reason": "fallback: climb to clear obstacle"}
+        if event_type == "goal_timeout":
+            return {"action": "hold", "params": {"hold_s": 4.0},
+                    "reason": "fallback: brief hold then retry"}
+        if event_type == "anomaly":
+            return {"action": "hold", "params": {"hold_s": 5.0},
+                    "reason": "fallback: hold to observe anomaly"}
+        return {"action": "rth", "params": {}, "reason": "fallback: return home"}
 
     def _llm_parse(self, text):
         try:

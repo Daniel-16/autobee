@@ -93,6 +93,14 @@ def generate_launch_description():
         output="screen",
     )
 
+    # Reactive inner loop: turns /drone/goal into /drone/cmd_vel against
+    # /drone/odom (published by sim_odometry inside sim.launch.py).
+    flight_controller = Node(
+        package="autobee_control",
+        executable="flight_controller_node",
+        output="screen",
+    )
+
     mission_logger = Node(
         package="autobee_core",
         executable="mission_logger_node",
@@ -158,6 +166,7 @@ def generate_launch_description():
         crowd_analytics,
         anomaly_detection,
         looming_detector,
+        flight_controller,
         mission_logger,
         mission_executor,
         voice_group,

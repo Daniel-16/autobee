@@ -1,41 +1,36 @@
-"""Mission executor — open-loop timed survey, command-driven, with abort.
+"""Mission executor — closed-loop goal-sequencing state machine.
+
+This is the EXECUTIVE layer of AutoBee's layered autonomy (see CLAUDE.md). It
+no longer flies the drone directly: it pre-plans a list of goals (reusing the
+geometric known-map avoidance) and hands them ONE AT A TIME to
+flight_controller_node, advancing when the controller reports `reached`. The
+controller (reactive layer, ~20 Hz) owns the velocity loop; the LLM agent
+(deliberative layer) owns tactical decisions when the executive escalates.
 
 Subscribes:
-    /mission_command   std_msgs/String (JSON) -- LLM-emitted plan
-    /mission_abort     std_msgs/String         -- operator/watchdog kill
+    /mission_command    std_msgs/String JSON  -- LLM-emitted plan
+    /mission_abort      std_msgs/String       -- operator/watchdog kill
+    /drone/odom         nav_msgs/Odometry     -- current pose (home capture, RTH)
+    /drone/goal_status  std_msgs/String JSON  -- controller handshake
+    /mission_directive  std_msgs/String JSON  -- agent's tactical decision
+    /anomaly_alert      std_msgs/String JSON  -- typed anomalies (may escalate)
 Publishes:
-    /drone/cmd_vel     geometry_msgs/Twist
-    /mission_status    std_msgs/String (JSON)  -- lifecycle state + outcome
+    /drone/goal         std_msgs/String JSON  -- one goal at a time
+    /mission_event      std_msgs/String JSON  -- escalation to the LLM agent
+    /mission_status     std_msgs/String JSON  -- lifecycle (UNCHANGED contract)
 
-Pose feedback through ros_gz_bridge is unreliable in this Fortress build, so
-the executor runs open-loop on a pre-computed timed twist schedule. Trades
-drift for reliability. Closed-loop control is gated on the SLAM phase.
+The /mission_status schema and phase labels (CLIMB/SETTLE/TRANSIT_OUT/SURVEY/
+TRANSIT_HOME/PRE_DESCEND/DESCEND/DONE/EMERGENCY_LAND*/FAILED) are preserved so
+report_node, looming gating, and the Tello driver's land-on-complete keep
+working untouched.
 
-Landmark handling: when /mission_command sets a "landmark" field, the executor
-looks up its world XY from LANDMARKS, prepends a TRANSIT_OUT phase to fly
-there from takeoff_world_xy, runs the survey centered on the landmark, then
-appends a TRANSIT_HOME phase before descent. Landmark navigation is still
-open-loop (timed yaw + forward) — it will be replaced with closed-loop nav
-once /drone/pose from SLAM is reliable.
-
-Schedule phases (published as mission_status state transitions):
-    CLIMB           rise to cruise altitude
-    SETTLE          brief pause
-    TRANSIT_OUT     fly from takeoff to landmark XY (only if landmark set)
-    SURVEY          per-waypoint yaw + forward
-    TRANSIT_HOME    fly back from landmark to takeoff (only if landmark set)
-    PRE_DESCEND     hover-at-home so drift settles
-    DESCEND         drop to ground
-    STOP            zero-twist hold
-    DONE            terminal success
-    EMERGENCY_LAND  aborted -- skip to descent immediately
-    FAILED          terminal failure (with reason)
-
-Outcome surface:
-    {"event": "started"|"phase"|"completed"|"aborted"|"failed",
-     "phase": "<name>", "elapsed_s": <float>,
-     "intent": "<original>", "landmark": "<name>"|null,
-     "reason": "<failure or abort cause>"}
+Closed-loop notes:
+  - Goals are in the odom frame. `home` (xy) and `ground_z` are captured from
+    /drone/odom at mission start; cruise_z = ground_z + cruise_altitude.
+  - Velocity control + reactive avoidance live in the controller; this node
+    only sequences and reacts to reached/timeout/blocked.
+  - On `blocked` or `timeout`, the executive escalates to the agent via
+    /mission_event and holds position until a /mission_directive arrives.
 """
 
 import json
@@ -44,7 +39,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Pose, Twist
+from nav_msgs.msg import Odometry
 from std_msgs.msg import String
 
 from autobee_core.survey_pattern_generator import (
@@ -54,8 +49,7 @@ from autobee_core.survey_pattern_generator import (
 )
 
 
-# World XY of named landmarks in campus.sdf (must stay in sync with the
-# SDF model poses). Z is ignored — survey altitude comes from the mission.
+# World XY of named landmarks in campus.sdf. Must stay in sync with SDF poses.
 LANDMARKS = {
     "main_gate":          (-20.0, 0.0),
     "library":            (10.0, 15.0),
@@ -67,22 +61,15 @@ LANDMARKS = {
     "dining_hall":        (25.0, -28.0),
 }
 
-
-# Hand-rolled known-map for geometric obstacle avoidance — mirrors campus.sdf.
-# Format: name -> (world_x, world_y, safety_radius_m, top_height_m).
-# safety_radius is approximated as (max footprint extent / 2) + drone buffer
-# so a circular keep-out comfortably contains an axis-aligned bounding box.
-# Convocation_ground is intentionally absent — it's a ground-level platform
-# (z<0.2) and never a collision risk above 4m altitude.
+# Known-map for geometric obstacle avoidance — mirrors campus.sdf.
+# name -> (world_x, world_y, safety_radius_m, top_height_m).
 KNOWN_OBSTACLES = {
-    # Trees: ~1.6 m canopy + buffer
     "tree_1":       (28.0, -22.0, 3.0, 4.6),
     "tree_2":       (28.0, -18.0, 3.0, 4.6),
     "tree_3":       (28.0, -14.0, 3.0, 5.1),
     "tree_4":       (28.0, -10.0, 3.0, 4.6),
     "tree_5":       (0.0,  10.0,  3.0, 5.1),
     "tree_6":       (-5.0, -5.0,  3.0, 4.6),
-    # Buildings: max(sx, sy)/2 + 1.5 m drone buffer
     "main_gate":    (-20.0, 0.0,  6.5, 4.0),
     "library":      (10.0,  15.0, 7.5, 8.0),
     "admin":        (-10.0, -18.0, 6.5, 6.0),
@@ -98,82 +85,89 @@ class MissionExecutorNode(Node):
         super().__init__("mission_executor_node")
 
         self.declare_parameter("default_cruise_altitude_m", 11.0)
-        # Hard ceiling on cruise_altitude regardless of LLM/mission_command input.
-        # Outdoor: leave at default 100 (no effect). Indoor/Tello: set to e.g. 1.5.
         self.declare_parameter("cruise_altitude_max_m", 100.0)
         self.declare_parameter("default_survey_radius_m", 6.0)
-        # Hard ceiling on survey_radius_m. Outdoor: leave at default 100 (no effect).
-        # Indoor/Tello: set to e.g. 1.5 so the LLM's 3..15m envelope gets shrunk.
         self.declare_parameter("survey_radius_max_m", 100.0)
         self.declare_parameter("default_survey_pattern", "orbit")
         self.declare_parameter("max_xy_speed", 1.0)
-        self.declare_parameter("max_z_speed", 0.6)
-        self.declare_parameter("max_yaw_rate", 0.6)
         self.declare_parameter("settle_time_s", 1.0)
         self.declare_parameter("autostart_mission", "")
-        # Where in the world the drone takes off (its (0,0) reference).
-        # Used to compute open-loop transit legs to/from named landmarks.
         self.declare_parameter("takeoff_world_x", 0.0)
         self.declare_parameter("takeoff_world_y", 0.0)
-        # Geometric obstacle avoidance against KNOWN_OBSTACLES (campus.sdf).
-        # Set to false to fly the raw pattern (debug only).
         self.declare_parameter("avoid_known_obstacles", True)
-        # Whether named landmarks (main_gate, library, etc.) are real places
-        # the drone can transit to. False on indoor Tello flights — the
-        # campus.sdf coordinates are meaningless indoors and the executor
-        # would otherwise try to fly to a phantom XY several metres away.
         self.declare_parameter("landmarks_enabled", True)
-        # Optical-flow looming + YOLO obstacle detection backstop. Lets a
-        # perception trigger publish /mission_abort even mid-pattern.
-        self.declare_parameter("perception_backstop", True)
+        # When true (default), escalate path_blocked / goal_timeout / high-severity
+        # anomalies to the LLM agent via /mission_event and wait for a directive.
+        # When false, blocked/timeout abort the mission directly (no agent loop).
+        self.declare_parameter("escalate_to_agent", True)
+        self.declare_parameter("escalate_anomalies", True)
+        # Arrival tolerance handed to the controller per goal.
+        self.declare_parameter("pos_tol_m", 0.6)
+        # If the agent never answers an escalation, give up after this long.
+        self.declare_parameter("directive_timeout_s", 20.0)
+
+        gp = self.get_parameter
         self.takeoff_world_xy = (
-            float(self.get_parameter("takeoff_world_x").value),
-            float(self.get_parameter("takeoff_world_y").value),
+            float(gp("takeoff_world_x").value), float(gp("takeoff_world_y").value),
         )
-        self.avoid_known = bool(self.get_parameter("avoid_known_obstacles").value)
-        self.perception_backstop = bool(self.get_parameter("perception_backstop").value)
-        self.landmarks_enabled = bool(self.get_parameter("landmarks_enabled").value)
+        self.avoid_known = bool(gp("avoid_known_obstacles").value)
+        self.landmarks_enabled = bool(gp("landmarks_enabled").value)
+        self.escalate_to_agent = bool(gp("escalate_to_agent").value)
+        self.escalate_anomalies = bool(gp("escalate_anomalies").value)
+        self.max_xy_speed = float(gp("max_xy_speed").value)
+        self.settle_time = float(gp("settle_time_s").value)
+        self.pos_tol = float(gp("pos_tol_m").value)
+        self.directive_timeout_s = float(gp("directive_timeout_s").value)
 
-        self.max_xy_speed = float(self.get_parameter("max_xy_speed").value)
-        self.max_z_speed = float(self.get_parameter("max_z_speed").value)
-        self.max_yaw_rate = float(self.get_parameter("max_yaw_rate").value)
-        self.settle_time = float(self.get_parameter("settle_time_s").value)
-
-        self.cmd_pub = self.create_publisher(Twist, "/drone/cmd_vel", 10)
+        self.goal_pub = self.create_publisher(String, "/drone/goal", 10)
+        self.event_pub = self.create_publisher(String, "/mission_event", 10)
         self.status_pub = self.create_publisher(String, "/mission_status", 10)
         self.create_subscription(String, "/mission_command", self._on_command, 10)
         self.create_subscription(String, "/mission_abort", self._on_abort, 10)
-        # /drone/pose is OPTIONAL feedback — when SLAM is up it gives us a
-        # post-mission RTH error metric (and eventually closed-loop control).
-        # When SLAM is not running, _last_pose stays None and the executor
-        # behaves exactly as before (open-loop).
-        self.create_subscription(Pose, "/drone/pose", self._on_pose, 10)
-        # Perception backstops — publish /mission_abort if collision imminent.
-        self.create_subscription(String, "/perception/looming", self._on_looming, 10)
-        self.create_subscription(String, "/perception/obstacles", self._on_obstacle_detection, 10)
-        self.create_timer(0.05, self._tick)
-        self._last_pose = None
-        self._takeoff_pose = None
+        self.create_subscription(Odometry, "/drone/odom", self._on_odom, 10)
+        self.create_subscription(String, "/drone/goal_status", self._on_goal_status, 10)
+        self.create_subscription(String, "/mission_directive", self._on_directive, 10)
+        self.create_subscription(String, "/anomaly_alert", self._on_anomaly, 10)
+        self.create_timer(0.1, self._tick)
 
-        self.schedule = None
-        self.start_time = None
+        # Mission state.
+        self._odom_xyz = None
+        self._takeoff_xyz = None
+        self._steps = None          # list of step dicts
+        self._idx = 0
+        self._state = "IDLE"        # IDLE/RUNNING/DWELL/WAIT_DIRECTIVE/TERMINATING
+        self._goal_seq = 0
+        self._active_goal_id = None
+        self._dwell_until = 0.0
+        self._dwell_action = "advance"   # "advance" (next step) or "resume" (re-issue current)
+        self._escalation_at = 0.0
+        self._pending_event_id = None
         self._mission_intent = ""
-        self._last_phase = None
-        self._aborted = False
+        self._survey_landmark = None
+        self._anomaly_escalated = False
+        self._terminating = False
         self._abort_reason = ""
 
         self.get_logger().info(
-            "mission_executor up (open-loop, command-driven); "
-            "waiting for JSON on /mission_command (abort on /mission_abort)"
+            "mission_executor up (closed-loop goal sequencer); "
+            "waiting for /mission_command. Hands goals to flight_controller_node."
         )
 
-        autostart = str(self.get_parameter("autostart_mission").value).strip()
+        autostart = str(gp("autostart_mission").value).strip()
         if autostart:
             self.get_logger().info(f"autostart_mission set; running {autostart!r}")
             self._start_mission_from_json(autostart)
 
+    # ---------- feedback ----------
+
+    def _on_odom(self, msg: Odometry):
+        p = msg.pose.pose.position
+        self._odom_xyz = (p.x, p.y, p.z)
+
+    # ---------- command intake ----------
+
     def _on_command(self, msg: String):
-        if self.schedule is not None:
+        if self._state != "IDLE":
             self.get_logger().warn("mission already in progress; ignoring new command")
             return
         self._start_mission_from_json(msg.data)
@@ -184,504 +178,439 @@ class MissionExecutorNode(Node):
         except json.JSONDecodeError as e:
             self.get_logger().error(f"invalid JSON on /mission_command: {e}")
             return
-
         if command.get("action") != "survey_local_area":
             reason = f"unsupported action: {command.get('action')!r}"
             self.get_logger().error(reason)
             self._publish_status("failed", phase="REJECTED", reason=reason)
             return
-
-        cruise = float(command.get(
-            "altitude_m", self.get_parameter("default_cruise_altitude_m").value))
-        cruise_max = float(self.get_parameter("cruise_altitude_max_m").value)
-        if cruise > cruise_max:
-            self.get_logger().warn(
-                f"clamping cruise_altitude {cruise:.1f}m -> {cruise_max:.1f}m (cruise_altitude_max_m)"
-            )
-            cruise = cruise_max
-        radius = float(command.get(
-            "radius_m", self.get_parameter("default_survey_radius_m").value))
-        radius_max = float(self.get_parameter("survey_radius_max_m").value)
-        if radius > radius_max:
-            self.get_logger().warn(
-                f"clamping survey_radius {radius:.1f}m -> {radius_max:.1f}m (survey_radius_max_m)"
-            )
-            radius = radius_max
-        pattern = str(command.get(
-            "pattern", self.get_parameter("default_survey_pattern").value))
-        intent = str(command.get("intent", ""))
-        landmark = command.get("landmark")
-        if isinstance(landmark, str):
-            landmark = landmark.strip().lower() or None
-        else:
-            landmark = None
-        if landmark is not None and landmark not in LANDMARKS:
-            self.get_logger().warn(
-                f"unknown landmark {landmark!r}; falling back to local-area survey"
-            )
-            landmark = None
-        if landmark is not None and not self.landmarks_enabled:
-            # Indoor / Tello: the campus.sdf XY for this landmark is meaningless.
-            # Degrade to a local survey at takeoff origin so the drone doesn't
-            # try to fly several metres to a phantom coordinate.
-            self.get_logger().warn(
-                f"landmarks_enabled=false; ignoring landmark {landmark!r} "
-                f"and surveying at takeoff origin"
-            )
-            landmark = None
-
-        try:
-            self.cruise_altitude = cruise
-            self.survey_radius = radius
-            self.survey_pattern = pattern
-            self.survey_landmark = landmark
-            # If the destination is a building obstacle, force the orbit radius
-            # to clear its safety circle. Otherwise the survey would happen
-            # inside the building.
-            if landmark and landmark in KNOWN_OBSTACLES and self.avoid_known:
-                _, _, dst_r, dst_top = KNOWN_OBSTACLES[landmark]
-                if is_obstacle_relevant_at_altitude(dst_top, cruise):
-                    min_orbit = dst_r + 1.5
-                    if self.survey_radius < min_orbit:
-                        self.get_logger().warn(
-                            f"clamping survey_radius {self.survey_radius:.1f}m -> "
-                            f"{min_orbit:.1f}m to orbit around {landmark!r} cleanly"
-                        )
-                        self.survey_radius = min_orbit
-            self._mission_intent = intent
-            self._aborted = False
-            self._abort_reason = ""
-            self.schedule, total = self._build_schedule()
-        except Exception as e:
-            reason = f"schedule build failed: {e}"
+        if self._odom_xyz is None:
+            reason = "no /drone/odom yet; cannot anchor goals (is odometry up?)"
             self.get_logger().error(reason)
             self._publish_status("failed", phase="PLANNING", reason=reason)
-            self.schedule = None
             return
 
-        self.start_time = self.get_clock().now()
-        # Snapshot the pose at mission start so we can compute RTH error at
-        # the end. If SLAM hasn't started publishing, this stays None and the
-        # final status simply omits the rth_error_m field.
-        self._takeoff_pose = self._last_pose
+        cruise = float(command.get("altitude_m", gpval(self, "default_cruise_altitude_m")))
+        cruise = min(cruise, float(gpval(self, "cruise_altitude_max_m")))
+        radius = float(command.get("radius_m", gpval(self, "default_survey_radius_m")))
+        radius = min(radius, float(gpval(self, "survey_radius_max_m")))
+        pattern = str(command.get("pattern", gpval(self, "default_survey_pattern")))
+        intent = str(command.get("intent", ""))
+        landmark = command.get("landmark")
+        landmark = landmark.strip().lower() if isinstance(landmark, str) and landmark.strip() else None
+        if landmark is not None and landmark not in LANDMARKS:
+            self.get_logger().warn(f"unknown landmark {landmark!r}; local-area survey")
+            landmark = None
+        if landmark is not None and not self.landmarks_enabled:
+            self.get_logger().warn(
+                f"landmarks_enabled=false; ignoring {landmark!r}, surveying at takeoff origin"
+            )
+            landmark = None
+
+        # Building target: widen orbit to clear its safety circle.
+        if landmark and landmark in KNOWN_OBSTACLES and self.avoid_known:
+            _, _, dst_r, dst_top = KNOWN_OBSTACLES[landmark]
+            if is_obstacle_relevant_at_altitude(dst_top, cruise) and radius < dst_r + 1.5:
+                radius = dst_r + 1.5
+                self.get_logger().warn(f"widened radius to {radius:.1f}m to orbit {landmark!r}")
+
+        self.cruise_altitude = cruise
+        self.survey_radius = radius
+        self.survey_pattern = pattern
+        self._survey_landmark = landmark
+        self._mission_intent = intent
+        self._anomaly_escalated = False
+
+        try:
+            self._steps = self._build_steps()
+        except Exception as e:
+            reason = f"plan build failed: {e}"
+            self.get_logger().error(reason)
+            self._publish_status("failed", phase="PLANNING", reason=reason)
+            self._reset()
+            return
+
+        self._takeoff_xyz = self._odom_xyz
+        self._idx = 0
+        self._state = "RUNNING"
         self._publish_status(
-            "started",
-            phase="CLIMB",
+            "started", phase="CLIMB",
             extra={
-                "pattern": pattern, "radius_m": radius,
-                "altitude_m": cruise, "duration_s": round(total, 1),
-                "landmark": landmark,
-                "pose_feedback": self._last_pose is not None,
+                "pattern": pattern, "radius_m": radius, "altitude_m": cruise,
+                "landmark": landmark, "n_goals": len(self._steps),
             },
         )
         self.get_logger().info(
-            f"executing: pattern={pattern} radius={radius}m altitude={cruise}m "
-            f"landmark={landmark!r} duration={total:.1f}s intent={intent!r}"
+            f"executing: pattern={pattern} radius={radius}m alt={cruise}m "
+            f"landmark={landmark!r} goals={len(self._steps)} intent={intent!r}"
         )
+        self._issue_current_goal()
 
-    def _on_abort(self, msg: String):
-        if self.schedule is None:
-            self.get_logger().warn("abort received with no active mission; ignoring")
-            return
-        if self._aborted:
-            return
-        self._aborted = True
-        self._abort_reason = msg.data.strip() or "operator abort"
-        self.get_logger().warn(f"ABORT: {self._abort_reason}; switching to EMERGENCY_LAND")
+    # ---------- goal-list construction (geometric pre-plan) ----------
 
-        # Replace remaining schedule with: zero-stop, descend, terminal stop.
-        elapsed = (self.get_clock().now() - self.start_time).nanoseconds / 1e9
-        new_events = [(elapsed, elapsed + 1.0, Twist(), "EMERGENCY_LAND_HOVER")]
-        descend_dur = self.cruise_altitude / self.max_z_speed if hasattr(self, "cruise_altitude") else 8.0
-        descend_cmd = Twist()
-        descend_cmd.linear.z = -self.max_z_speed
-        new_events.append((elapsed + 1.0, elapsed + 1.0 + descend_dur, descend_cmd, "EMERGENCY_LAND_DESCEND"))
-        new_events.append((elapsed + 1.0 + descend_dur, float("inf"), Twist(), "FAILED"))
-        self.schedule = new_events
+    def _build_steps(self):
+        hx, hy, hz = self._odom_xyz
+        cruise_z = hz + self.cruise_altitude
 
-    def _build_yaw_only_schedule(self):
-        """scan_in_place: climb -> 360 deg yaw -> descend -> land. No translation."""
-        events = []
-        t = 0.0
-
-        climb_dur = self.cruise_altitude / self.max_z_speed
-        climb = Twist(); climb.linear.z = self.max_z_speed
-        events.append((t, t + climb_dur, climb, "CLIMB"))
-        t += climb_dur
-
-        events.append((t, t + self.settle_time, Twist(), "SETTLE"))
-        t += self.settle_time
-
-        yaw_dur = (2.0 * math.pi) / self.max_yaw_rate
-        yaw = Twist(); yaw.angular.z = self.max_yaw_rate
-        events.append((t, t + yaw_dur, yaw, "YAW_360"))
-        t += yaw_dur
-
-        events.append((t, t + self.settle_time, Twist(), "SETTLE_POST_YAW"))
-        t += self.settle_time
-
-        descend_dur = self.cruise_altitude / self.max_z_speed
-        descend = Twist(); descend.linear.z = -self.max_z_speed
-        events.append((t, t + descend_dur, descend, "DESCEND"))
-        t += descend_dur
-
-        events.append((t, t + 2.0, Twist(), "STOP"))
-        t += 2.0
-        events.append((t, float("inf"), Twist(), "DONE"))
-        return events, t
-
-    def _build_land_now_schedule(self):
-        """return_home: when the drone is grounded this is a 1s no-op that
-        completes the mission cleanly. When airborne, /mission_abort is the
-        right entry point — return_home as a fresh /mission_command implies
-        the drone has nothing to do."""
-        events = []
-        t = 0.0
-        events.append((t, t + 1.0, Twist(), "AT_HOME"))
-        t += 1.0
-        events.append((t, float("inf"), Twist(), "DONE"))
-        return events, t
-
-    def _build_schedule(self):
-        # Skill-specific schedule shapes that aren't orbit/spiral.
         if self.survey_pattern == "yaw_only":
-            return self._build_yaw_only_schedule()
+            return self._build_yaw_only(hx, hy, hz, cruise_z)
         if self.survey_pattern == "land_now":
-            return self._build_land_now_schedule()
+            return self._build_land_now(hx, hy, hz, cruise_z)
 
-        events = []
-        t = 0.0
+        steps = []
+        steps.append(self._step("CLIMB", "takeoff", hx, hy, cruise_z,
+                                yaw=None, avoid=False, dwell_s=self.settle_time))
 
-        climb_dur = self.cruise_altitude / self.max_z_speed
-        cmd = Twist()
-        cmd.linear.z = self.max_z_speed
-        events.append((t, t + climb_dur, cmd, "CLIMB"))
-        t += climb_dur
-
-        events.append((t, t + self.settle_time, Twist(), "SETTLE"))
-        t += self.settle_time
-
-        # If a landmark is requested, fly there from takeoff before surveying.
-        # Survey center is in body-relative coords (drone "thinks" it is at
-        # (0,0)) — translate the landmark target into the same frame.
-        if self.survey_landmark and self.survey_landmark in LANDMARKS:
-            lx_world, ly_world = LANDMARKS[self.survey_landmark]
+        # Survey center, drone-relative (takeoff == 0,0), then obstacle list.
+        if self._survey_landmark and self._survey_landmark in LANDMARKS:
+            lx, ly = LANDMARKS[self._survey_landmark]
             tx, ty = self.takeoff_world_xy
-            survey_cx = lx_world - tx
-            survey_cy = ly_world - ty
+            cx_rel, cy_rel = lx - tx, ly - ty
         else:
-            survey_cx, survey_cy = 0.0, 0.0
+            cx_rel, cy_rel = 0.0, 0.0
+        obstacles = self._collect_relevant_obstacles()
 
-        prev_x, prev_y = 0.0, 0.0
-        prev_heading = 0.0
+        prev_rel = (0.0, 0.0)
+        # Transit out to the survey center (segmented + avoided).
+        if (cx_rel, cy_rel) != (0.0, 0.0):
+            transit = self._segment_line((0.0, 0.0), (cx_rel, cy_rel), 3.0)
+            if obstacles:
+                transit, _ = avoid_obstacles([(x, y, cruise_z) for x, y in transit], obstacles)
+                transit = [(x, y) for x, y, _ in transit]
+            for i, (rx, ry) in enumerate(transit):
+                label = "TRANSIT_OUT" if i == len(transit) - 1 else f"TRANSIT_OUT_{i}"
+                steps.append(self._transit_step(label, prev_rel, (rx, ry), hx, hy, cruise_z))
+                prev_rel = (rx, ry)
+            cx_rel, cy_rel = prev_rel
 
-        # Build the obstacle list (in the drone-relative frame) BEFORE planning
-        # the transit so both the transit leg and the survey waypoints get
-        # repaired against the same set.
-        obstacles_relative = self._collect_relevant_obstacles()
+        # Survey waypoints.
+        waypoints = generate(self.survey_pattern, (cx_rel, cy_rel),
+                             self.survey_radius, self.cruise_altitude)
+        if obstacles:
+            waypoints, _ = avoid_obstacles(waypoints, obstacles)
+        for i, (rx, ry, _rz) in enumerate(waypoints):
+            steps.append(self._transit_step("SURVEY", prev_rel, (rx, ry), hx, hy, cruise_z))
+            prev_rel = (rx, ry)
 
-        if (survey_cx, survey_cy) != (0.0, 0.0):
-            # Split the transit into ~3m segments, repair each waypoint
-            # against the obstacle list, then chain them as transit legs.
-            # A single straight line from takeoff to landmark would otherwise
-            # fly through any tree on the path.
-            transit_waypoints = self._segment_line(
-                (prev_x, prev_y), (survey_cx, survey_cy),
-                segment_m=3.0,
-                z=self.cruise_altitude,
-            )
-            if obstacles_relative and transit_waypoints:
-                transit_waypoints, repairs = avoid_obstacles(transit_waypoints, obstacles_relative)
-                if repairs:
-                    self.get_logger().info(
-                        f"transit avoidance: pushed {repairs}/{len(transit_waypoints)} "
-                        f"transit waypoints out of obstacles"
-                    )
-            for i, (tx_, ty_, _) in enumerate(transit_waypoints):
-                label = "TRANSIT_OUT" if i == len(transit_waypoints) - 1 else f"TRANSIT_OUT_{i}"
-                t, prev_x, prev_y, prev_heading = self._append_transit(
-                    events, t, prev_x, prev_y, prev_heading,
-                    tx_, ty_, label,
-                )
-            # Final survey center lines up with the last transit waypoint
-            # (which may have been pushed out by avoidance).
-            survey_cx, survey_cy = prev_x, prev_y
+        # Transit home.
+        if prev_rel != (0.0, 0.0):
+            home_seg = self._segment_line(prev_rel, (0.0, 0.0), 3.0)
+            if obstacles:
+                home_seg, _ = avoid_obstacles([(x, y, cruise_z) for x, y in home_seg], obstacles)
+                home_seg = [(x, y) for x, y, _ in home_seg]
+            for i, (rx, ry) in enumerate(home_seg):
+                label = "TRANSIT_HOME" if i == len(home_seg) - 1 else f"TRANSIT_HOME_{i}"
+                steps.append(self._transit_step(label, prev_rel, (rx, ry), hx, hy, cruise_z))
+                prev_rel = (rx, ry)
 
-        waypoints = generate(
-            self.survey_pattern,
-            (survey_cx, survey_cy),
-            self.survey_radius,
-            self.cruise_altitude,
-        )
+        steps.append(self._step("PRE_DESCEND", "hover", hx, hy, cruise_z,
+                                yaw=None, avoid=True, dwell_s=max(self.settle_time, 3.0)))
+        steps.append(self._step("DESCEND", "land", hx, hy, hz,
+                                yaw=None, avoid=False))
+        return steps
 
-        if obstacles_relative:
-            waypoints, repairs = avoid_obstacles(waypoints, obstacles_relative)
-            if repairs:
-                self.get_logger().info(
-                    f"obstacle avoidance: pushed {repairs}/{len(waypoints)} waypoints "
-                    f"out of {len(obstacles_relative)} known obstacles"
-                )
+    def _build_yaw_only(self, hx, hy, hz, cruise_z):
+        steps = [self._step("CLIMB", "takeoff", hx, hy, cruise_z,
+                            yaw=None, avoid=False, dwell_s=self.settle_time)]
+        # Closed-loop 360: 8 hover goals at 45-degree yaw increments.
+        for k in range(1, 9):
+            yaw = self._wrap(k * (math.pi / 4.0))
+            steps.append(self._step("YAW_360", "hover", hx, hy, cruise_z,
+                                    yaw=yaw, avoid=False, dwell_s=0.6))
+        steps.append(self._step("DESCEND", "land", hx, hy, hz, yaw=None, avoid=False))
+        return steps
 
-        for i, (wx, wy, _wz) in enumerate(waypoints):
-            dx = wx - prev_x
-            dy = wy - prev_y
-            distance = math.hypot(dx, dy)
-            if distance < 1e-3:
-                continue
+    def _build_land_now(self, hx, hy, hz, cruise_z):
+        # Return-to-base: hold at current xy, then descend and land.
+        return [
+            self._step("PRE_DESCEND", "hover", hx, hy, self._odom_xyz[2],
+                       yaw=None, avoid=True, dwell_s=self.settle_time),
+            self._step("DESCEND", "land", hx, hy, hz, yaw=None, avoid=False),
+        ]
 
-            target_heading = math.atan2(dy, dx)
-            heading_diff = self._wrap(target_heading - prev_heading)
+    def _transit_step(self, label, prev_rel, rel, hx, hy, z):
+        dist = math.hypot(rel[0] - prev_rel[0], rel[1] - prev_rel[1])
+        timeout = dist / max(0.2, self.max_xy_speed) * 2.5 + 8.0
+        return self._step(label, "goto", hx + rel[0], hy + rel[1], z,
+                          yaw=None, avoid=True, timeout_s=timeout)
 
-            yaw_dur = abs(heading_diff) / self.max_yaw_rate
-            if yaw_dur > 0.05:
-                yaw_cmd = Twist()
-                yaw_cmd.angular.z = self.max_yaw_rate * (1.0 if heading_diff > 0 else -1.0)
-                events.append((t, t + yaw_dur, yaw_cmd, f"YAW->{i}"))
-                t += yaw_dur
+    def _step(self, phase, gtype, x, y, z, yaw=None, avoid=True, dwell_s=0.0, timeout_s=None):
+        goal = {
+            "type": gtype, "x": round(x, 3), "y": round(y, 3), "z": round(z, 3),
+            "yaw": yaw, "avoid": bool(avoid), "pos_tol_m": self.pos_tol,
+        }
+        if timeout_s is not None:
+            goal["timeout_s"] = round(timeout_s, 1)
+        return {"phase": phase, "goal": goal, "dwell_s": float(dwell_s)}
 
-            fwd_dur = distance / self.max_xy_speed
-            fwd_cmd = Twist()
-            fwd_cmd.linear.x = self.max_xy_speed
-            events.append((t, t + fwd_dur, fwd_cmd, f"FWD->{i}"))
-            t += fwd_dur
+    # ---------- sequencing ----------
 
-            prev_x, prev_y, prev_heading = wx, wy, target_heading
+    def _issue_current_goal(self):
+        step = self._steps[self._idx]
+        self._goal_seq += 1
+        self._active_goal_id = f"g{self._goal_seq}"
+        goal = dict(step["goal"])
+        goal["goal_id"] = self._active_goal_id
+        self.goal_pub.publish(String(data=json.dumps(goal)))
+        # One phase status per *named* phase (skip noisy intermediate indices).
+        phase = step["phase"]
+        noisy = phase.rsplit("_", 1)[-1].isdigit()
+        if not noisy:
+            self._publish_status("phase", phase=phase)
 
-        # Return-to-takeoff transit if the survey was off-center (landmark mode).
-        if (prev_x, prev_y) != (0.0, 0.0):
-            home_segments = self._segment_line(
-                (prev_x, prev_y), (0.0, 0.0),
-                segment_m=3.0,
-                z=self.cruise_altitude,
-            )
-            if obstacles_relative and home_segments:
-                home_segments, repairs = avoid_obstacles(home_segments, obstacles_relative)
-                if repairs:
-                    self.get_logger().info(
-                        f"return avoidance: pushed {repairs}/{len(home_segments)} "
-                        f"home-transit waypoints out of obstacles"
-                    )
-            for i, (tx_, ty_, _) in enumerate(home_segments):
-                label = "TRANSIT_HOME" if i == len(home_segments) - 1 else f"TRANSIT_HOME_{i}"
-                t, prev_x, prev_y, prev_heading = self._append_transit(
-                    events, t, prev_x, prev_y, prev_heading,
-                    tx_, ty_, label,
-                )
+    def _on_goal_status(self, msg: String):
+        if self._state not in ("RUNNING",):
+            return
+        try:
+            st = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        if st.get("goal_id") != self._active_goal_id:
+            return
+        state = st.get("state")
+        if state == "reached":
+            self._on_goal_reached()
+        elif state == "blocked":
+            self._handle_problem("path_blocked", st)
+        elif state == "timeout":
+            self._handle_problem("goal_timeout", st)
 
-        # Hover-at-home: open-loop accumulates drift across the spiral; give
-        # the drone a few seconds with zero command before descending so any
-        # residual velocity damps out instead of carrying it sideways into
-        # whatever's at ground level.
-        hover_home_dur = max(self.settle_time, 4.0)
-        events.append((t, t + hover_home_dur, Twist(), "PRE_DESCEND"))
-        t += hover_home_dur
+    def _on_goal_reached(self):
+        step = self._steps[self._idx]
+        dwell = step.get("dwell_s", 0.0)
+        if dwell > 0.0:
+            self._state = "DWELL"
+            self._dwell_action = "advance"
+            self._dwell_until = time.time() + dwell
+        else:
+            self._advance()
 
-        descend_dur = self.cruise_altitude / self.max_z_speed
-        descend_cmd = Twist()
-        descend_cmd.linear.z = -self.max_z_speed
-        events.append((t, t + descend_dur, descend_cmd, "DESCEND"))
-        t += descend_dur
-
-        # Final stop phase: explicitly publish zeros for a couple seconds after
-        # nominal touchdown so the velocity-control plugin doesn't carry the
-        # last command forward (this was the "drone keeps moving after Ctrl-C"
-        # bug pattern -- same fix applied here as a normal mission end).
-        events.append((t, t + 2.0, Twist(), "STOP"))
-        t += 2.0
-
-        events.append((t, float("inf"), Twist(), "DONE"))
-
-        return events, t
+    def _advance(self):
+        self._idx += 1
+        if self._idx >= len(self._steps):
+            self._finish_ok()
+            return
+        self._state = "RUNNING"
+        self._issue_current_goal()
 
     def _tick(self):
-        if self.schedule is None:
-            return
-        elapsed = (self.get_clock().now() - self.start_time).nanoseconds / 1e9
-        for (t_start, t_end, cmd, label) in self.schedule:
-            if t_start <= elapsed < t_end:
-                self.cmd_pub.publish(cmd)
-                # Skip logging the per-waypoint micro-phases (YAW->n, FWD->n),
-                # the transit yaw sub-phases, and intermediate transit waypoints
-                # (TRANSIT_OUT_0, TRANSIT_HOME_2 etc). Only the final TRANSIT_OUT
-                # / TRANSIT_HOME labels (no trailing index) log so operators see
-                # when the drone changed area.
-                # Per-waypoint micro-phases ("YAW->3", "FWD->5", "TRANSIT_OUT_3_YAW",
-                # "TRANSIT_OUT_2") are noise. Skill-level phases that share a prefix
-                # ("YAW_360", "SETTLE_POST_YAW", "AT_HOME") are not — keep them visible.
-                _SKILL_LEVEL_PHASES = {"YAW_360", "SETTLE_POST_YAW", "AT_HOME"}
-                noisy = label not in _SKILL_LEVEL_PHASES and (
-                    label.startswith(("YAW->", "FWD->"))
-                    or label.endswith("_YAW")
-                    or label.rsplit("_", 1)[-1].isdigit()
-                )
-                if label != self._last_phase and not noisy:
-                    self.get_logger().info(f"phase: {label} (t={elapsed:.1f}s)")
-                    self._last_phase = label
-                    # Phase transition -- emit lifecycle event
-                    if label == "DONE":
-                        self._publish_status(
-                            "completed", phase="DONE", elapsed=elapsed,
-                            extra=self._rth_audit(),
-                        )
-                        # Mission is finished — drop the schedule so the next
-                        # /mission_command starts from a clean state instead of
-                        # racing against a still-active DONE-loop.
-                        self.schedule = None
-                        self._last_phase = None
-                    elif label == "FAILED":
-                        self._publish_status(
-                            "aborted", phase="FAILED", elapsed=elapsed,
-                            reason=self._abort_reason or "unknown",
-                            extra=self._rth_audit(),
-                        )
-                        self.schedule = None
-                        self._last_phase = None
-                    else:
-                        self._publish_status("phase", phase=label, elapsed=elapsed)
-                return
-        # Past the end of the schedule entirely: hold zero
-        self.cmd_pub.publish(Twist())
+        if self._state == "DWELL" and time.time() >= self._dwell_until:
+            if self._dwell_action == "resume":
+                self._state = "RUNNING"
+                self._issue_current_goal()
+            else:
+                self._advance()
+        elif self._state == "WAIT_DIRECTIVE":
+            if (time.time() - self._escalation_at) > self.directive_timeout_s:
+                self.get_logger().warn("no directive in time; returning home and landing")
+                self._begin_rth("directive_timeout")
 
-    def _publish_status(self, event, phase=None, elapsed=None, reason="", extra=None):
-        payload = {
-            "event": event,
-            "phase": phase,
-            "elapsed_s": round(elapsed, 2) if elapsed is not None else None,
+    # ---------- escalation / tactical loop (deliberative layer) ----------
+
+    def _handle_problem(self, event_type, status):
+        if not self.escalate_to_agent:
+            self._begin_abort(f"{event_type} (no agent escalation configured)")
+            return
+        # Hold position while we wait for the agent's decision.
+        self._hold_here()
+        self._pending_event_id = f"e{self._goal_seq}"
+        self._state = "WAIT_DIRECTIVE"
+        self._escalation_at = time.time()
+        event = {
+            "event_id": self._pending_event_id,
+            "event_type": event_type,
+            "phase": self._steps[self._idx]["phase"],
             "intent": self._mission_intent,
-            "landmark": getattr(self, "survey_landmark", None),
-            "reason": reason,
+            "landmark": self._survey_landmark,
+            "context": status,
             "wall_time": time.time(),
         }
-        if extra:
-            payload.update(extra)
-        msg = String()
-        msg.data = json.dumps(payload)
-        self.status_pub.publish(msg)
+        self.event_pub.publish(String(data=json.dumps(event)))
+        self.get_logger().warn(f"escalating {event_type} -> /mission_event ({self._pending_event_id})")
 
-    def _on_pose(self, msg: Pose):
-        self._last_pose = (msg.position.x, msg.position.y, msg.position.z)
-
-    def _on_looming(self, msg: String):
-        """Optical-flow looming alert -> emergency-land.
-
-        The detector itself is gated against YAW/CLIMB/DESCEND phases (it
-        suppresses publish during those). By the time a message reaches us,
-        we trust it and route through the existing abort path.
-        """
-        if not self.perception_backstop or self.schedule is None or self._aborted:
+    def _on_anomaly(self, msg: String):
+        if not (self.escalate_anomalies and self._state == "RUNNING" and not self._anomaly_escalated):
             return
         try:
-            payload = json.loads(msg.data)
+            alert = json.loads(msg.data)
         except json.JSONDecodeError:
             return
-        ttc = payload.get("ttc_s")
-        reason = f"looming detected (ttc={ttc}s) — emergency land"
-        abort_msg = String()
-        abort_msg.data = reason
-        # Re-use the standard abort path so the failure mode is identical to
-        # an operator abort (EMERGENCY_LAND_HOVER -> DESCEND -> FAILED).
-        self._on_abort(abort_msg)
-
-    def _on_obstacle_detection(self, msg: String):
-        """Large-and-centered YOLO non-person detection -> emergency-land."""
-        if not self.perception_backstop or self.schedule is None or self._aborted:
+        if str(alert.get("severity", "")).lower() not in ("high", "critical"):
             return
-        # Suppress during yaw/climb/descend — these phases generate big
-        # detections sliding across frame that aren't actually approaching.
-        suppressing_phases = {
-            "CLIMB", "SETTLE", "PRE_DESCEND", "DESCEND", "STOP",
-            "YAW_360", "SETTLE_POST_YAW", "AT_HOME",
+        self._anomaly_escalated = True
+        self._handle_problem("anomaly", alert)
+
+    def _on_directive(self, msg: String):
+        if self._state != "WAIT_DIRECTIVE":
+            return
+        try:
+            d = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        if d.get("event_id") not in (None, self._pending_event_id):
+            return
+        action = str(d.get("action", "continue")).lower()
+        params = d.get("params") or {}
+        reason = str(d.get("reason", ""))
+        self.get_logger().info(f"directive: {action} ({reason})")
+        self._pending_event_id = None
+
+        if action == "continue":
+            self._state = "RUNNING"
+            self._issue_current_goal()
+        elif action == "hold":
+            hold_s = float(params.get("hold_s", 5.0))
+            self._hold_here()
+            self._state = "DWELL"
+            self._dwell_action = "resume"   # hold, THEN retry the same goal
+            self._dwell_until = time.time() + hold_s
+        elif action in ("skip_goal", "skip"):
+            self._advance()
+        elif action in ("climb", "adjust_altitude"):
+            self._shift_remaining_altitude(float(params.get("delta_alt_m", 2.0)))
+            self._state = "RUNNING"
+            self._issue_current_goal()
+        elif action in ("divert", "rth", "return_home"):
+            self._begin_rth(f"directive:{action}")
+        elif action == "abort":
+            self._begin_abort(reason or "agent abort")
+        else:
+            self.get_logger().warn(f"unknown directive action {action!r}; continuing")
+            self._state = "RUNNING"
+            self._issue_current_goal()
+
+    def _shift_remaining_altitude(self, delta):
+        for step in self._steps[self._idx:]:
+            if step["goal"]["type"] != "land":
+                step["goal"]["z"] = round(step["goal"]["z"] + delta, 3)
+
+    # ---------- terminations ----------
+
+    def _hold_here(self):
+        if self._odom_xyz is None:
+            return
+        x, y, z = self._odom_xyz
+        self._goal_seq += 1
+        self._active_goal_id = f"g{self._goal_seq}"
+        goal = {
+            "goal_id": self._active_goal_id, "type": "hover",
+            "x": round(x, 3), "y": round(y, 3), "z": round(z, 3),
+            "yaw": None, "avoid": True, "pos_tol_m": self.pos_tol,
         }
-        if self._last_phase in suppressing_phases or (
-            self._last_phase and self._last_phase.endswith("_YAW")
-        ):
+        self.goal_pub.publish(String(data=json.dumps(goal)))
+
+    def _begin_rth(self, reason):
+        """Replace remaining plan with: hold -> descend at home -> DONE."""
+        if self._takeoff_xyz is None:
+            self._begin_abort(reason)
             return
-        try:
-            payload = json.loads(msg.data)
-        except json.JSONDecodeError:
+        hx, hy, hz = self._takeoff_xyz
+        cruise_z = self._odom_xyz[2] if self._odom_xyz else hz + self.cruise_altitude
+        self._steps = [
+            self._step("TRANSIT_HOME", "goto", hx, hy, cruise_z, yaw=None, avoid=True,
+                       timeout_s=40.0),
+            self._step("PRE_DESCEND", "hover", hx, hy, cruise_z, yaw=None, avoid=True,
+                       dwell_s=max(self.settle_time, 3.0)),
+            self._step("DESCEND", "land", hx, hy, hz, yaw=None, avoid=False),
+        ]
+        self._idx = 0
+        self._state = "RUNNING"
+        self.get_logger().warn(f"RTH: {reason}")
+        self._issue_current_goal()
+
+    def _begin_abort(self, reason):
+        """Emergency: hover briefly, descend in place, terminal FAILED."""
+        if self._odom_xyz is None:
+            self._publish_status("aborted", phase="FAILED", reason=reason)
+            self._reset()
             return
-        cls = payload.get("class")
-        score = payload.get("score")
-        reason = f"obstacle detected (class={cls!r} score={score}) — emergency land"
-        abort_msg = String()
-        abort_msg.data = reason
-        self._on_abort(abort_msg)
+        x, y, z = self._odom_xyz
+        self._abort_reason = reason
+        self._steps = [
+            self._step("EMERGENCY_LAND_HOVER", "hover", x, y, z, yaw=None, avoid=False,
+                       dwell_s=1.0),
+            self._step("EMERGENCY_LAND_DESCEND", "land", x, y,
+                       (self._takeoff_xyz[2] if self._takeoff_xyz else z - z), yaw=None, avoid=False),
+        ]
+        self._idx = 0
+        # Reuse the normal reached-handshake to run the emergency steps, but the
+        # _terminating flag makes _finish_ok report 'aborted' instead of 'completed'.
+        self._state = "RUNNING"
+        self._terminating = True
+        self.get_logger().warn(f"ABORT: {reason} -> EMERGENCY_LAND")
+        self._issue_current_goal()
+
+    def _on_abort(self, msg: String):
+        if self._state == "IDLE":
+            self.get_logger().warn("abort received with no active mission; ignoring")
+            return
+        if getattr(self, "_terminating", False):
+            return
+        self._begin_abort(msg.data.strip() or "operator abort")
+
+    def _finish_ok(self):
+        if getattr(self, "_terminating", False):
+            self._publish_status("aborted", phase="FAILED",
+                                 reason=getattr(self, "_abort_reason", "aborted"),
+                                 extra=self._rth_audit())
+        else:
+            self._publish_status("completed", phase="DONE", extra=self._rth_audit())
+        self._reset()
+
+    def _reset(self):
+        self._steps = None
+        self._idx = 0
+        self._state = "IDLE"
+        self._active_goal_id = None
+        self._pending_event_id = None
+        self._terminating = False
+
+    # ---------- planning helpers (geometric) ----------
 
     def _collect_relevant_obstacles(self):
-        """Return KNOWN_OBSTACLES filtered for this mission, in drone-relative XY.
-
-        Excludes the destination landmark (we want to orbit around it, not
-        avoid it). Excludes obstacles whose top is well below cruise altitude
-        (no collision risk). Translates each obstacle into the drone-relative
-        frame so distances match the planner's waypoint coords.
-        """
         if not self.avoid_known:
             return []
         tx, ty = self.takeoff_world_xy
         relevant = []
         for name, (ox, oy, r, top) in KNOWN_OBSTACLES.items():
-            if name == self.survey_landmark:
+            if name == self._survey_landmark:
                 continue
             if not is_obstacle_relevant_at_altitude(top, self.cruise_altitude):
                 continue
             relevant.append((ox - tx, oy - ty, r))
         return relevant
 
-    def _rth_audit(self):
-        """Compute RTH error if pose feedback was available at start + end."""
-        if self._takeoff_pose is None or self._last_pose is None:
-            return None
-        x0, y0, z0 = self._takeoff_pose
-        x1, y1, z1 = self._last_pose
-        err_xy = math.hypot(x1 - x0, y1 - y0)
-        err_xyz = math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2 + (z1 - z0) ** 2)
-        return {
-            "rth_error_xy_m": round(err_xy, 3),
-            "rth_error_xyz_m": round(err_xyz, 3),
-            "takeoff_pose_xyz": [round(v, 3) for v in self._takeoff_pose],
-            "final_pose_xyz": [round(v, 3) for v in self._last_pose],
-        }
-
     @staticmethod
-    def _segment_line(start_xy, end_xy, segment_m, z):
-        """Split (start->end) into a list of waypoints ~segment_m apart, ending at end_xy.
-
-        Returns a list of (x, y, z). At least one waypoint (the endpoint) is
-        always returned so the caller can iterate without an empty-check.
-        """
+    def _segment_line(start_xy, end_xy, segment_m):
         x0, y0 = start_xy
         x1, y1 = end_xy
         dx, dy = x1 - x0, y1 - y0
-        distance = math.hypot(dx, dy)
-        if distance <= segment_m + 1e-6:
-            return [(x1, y1, z)]
-        n = max(1, int(math.ceil(distance / segment_m)))
-        return [
-            (x0 + dx * (i / n), y0 + dy * (i / n), z)
-            for i in range(1, n + 1)
-        ]
+        dist = math.hypot(dx, dy)
+        if dist <= segment_m + 1e-6:
+            return [(x1, y1)]
+        n = max(1, int(math.ceil(dist / segment_m)))
+        return [(x0 + dx * (i / n), y0 + dy * (i / n)) for i in range(1, n + 1)]
 
-    def _append_transit(self, events, t, x0, y0, heading0, x1, y1, label):
-        """Append a yaw + forward leg from (x0,y0) to (x1,y1). Returns updated t/state."""
-        dx = x1 - x0
-        dy = y1 - y0
-        distance = math.hypot(dx, dy)
-        if distance < 1e-3:
-            return t, x0, y0, heading0
-        target_heading = math.atan2(dy, dx)
-        heading_diff = self._wrap(target_heading - heading0)
-        yaw_dur = abs(heading_diff) / self.max_yaw_rate
-        if yaw_dur > 0.05:
-            yaw_cmd = Twist()
-            yaw_cmd.angular.z = self.max_yaw_rate * (1.0 if heading_diff > 0 else -1.0)
-            events.append((t, t + yaw_dur, yaw_cmd, f"{label}_YAW"))
-            t += yaw_dur
-        fwd_dur = distance / self.max_xy_speed
-        fwd_cmd = Twist()
-        fwd_cmd.linear.x = self.max_xy_speed
-        events.append((t, t + fwd_dur, fwd_cmd, label))
-        t += fwd_dur
-        return t, x1, y1, target_heading
+    def _rth_audit(self):
+        if self._takeoff_xyz is None or self._odom_xyz is None:
+            return None
+        x0, y0, z0 = self._takeoff_xyz
+        x1, y1, z1 = self._odom_xyz
+        return {
+            "rth_error_xy_m": round(math.hypot(x1 - x0, y1 - y0), 3),
+            "rth_error_xyz_m": round(math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2 + (z1 - z0) ** 2), 3),
+            "takeoff_pose_xyz": [round(v, 3) for v in self._takeoff_xyz],
+            "final_pose_xyz": [round(v, 3) for v in self._odom_xyz],
+        }
+
+    def _publish_status(self, event, phase=None, reason="", extra=None):
+        payload = {
+            "event": event, "phase": phase,
+            "intent": self._mission_intent, "landmark": self._survey_landmark,
+            "reason": reason, "wall_time": time.time(),
+        }
+        if extra:
+            payload.update(extra)
+        self.status_pub.publish(String(data=json.dumps(payload)))
 
     @staticmethod
     def _wrap(angle):
@@ -692,6 +621,10 @@ class MissionExecutorNode(Node):
         return angle
 
 
+def gpval(node, name):
+    return node.get_parameter(name).value
+
+
 def main(args=None):
     rclpy.init(args=args)
     node = MissionExecutorNode()
@@ -700,9 +633,6 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        stop = Twist()
-        for _ in range(5):
-            node.cmd_pub.publish(stop)
         node.destroy_node()
         rclpy.shutdown()
 

@@ -153,7 +153,11 @@ class YoloPerceptionNode(Node):
             # Non-person: evaluate as obstacle threat.
             cx = (x1 + x2) / 2.0
             size_frac = ((x2 - x1) * (y2 - y1)) / frame_area
-            centre_offset_frac = abs(cx - width / 2.0) / max(1.0, width / 2.0)
+            # Signed offset (+right / -left of frame centre) lets the flight
+            # controller steer around laterally, not just brake. centre_offset_frac
+            # stays unsigned for the existing centredness/threat threshold.
+            cx_offset_frac = (cx - width / 2.0) / max(1.0, width / 2.0)
+            centre_offset_frac = abs(cx_offset_frac)
             if (
                 conf >= self.obs_min_score
                 and size_frac >= self.obs_min_size
@@ -170,6 +174,7 @@ class YoloPerceptionNode(Node):
                         "bbox": [round(x1, 1), round(y1, 1), round(x2, 1), round(y2, 1)],
                         "size_frac": round(size_frac, 4),
                         "centre_offset_frac": round(centre_offset_frac, 3),
+                        "cx_offset_frac": round(cx_offset_frac, 3),
                         "threat": round(threat, 4),
                         "frame_id": msg.header.frame_id or "drone/camera",
                         "timestamp": self.get_clock().now().nanoseconds / 1e9,

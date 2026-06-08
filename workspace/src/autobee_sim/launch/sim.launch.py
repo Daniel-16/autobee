@@ -61,6 +61,16 @@ def generate_launch_description():
         output="screen",
     )
 
+    # Sim half of the feedback contract: turn Gazebo ground-truth /drone/pose
+    # into the unified /drone/odom (pose + Tello-like body twist). Mirrors
+    # autobee_control/tello_odometry_node on the real drone.
+    sim_odometry = Node(
+        package="autobee_control",
+        executable="sim_odometry_node",
+        output="screen",
+        parameters=[{"use_sim_time": True}],
+    )
+
     return LaunchDescription([
         headless_arg,
         gz_resource_path,
@@ -69,4 +79,5 @@ def generate_launch_description():
         gz_sim_headless,
         spawn_drone,
         bridge,
+        sim_odometry,
     ])

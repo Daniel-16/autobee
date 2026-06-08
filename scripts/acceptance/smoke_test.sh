@@ -43,8 +43,9 @@ require_topic_alive() {
 }
 
 hdr "Topic existence"
-for t in /drone/cmd_vel /drone/camera/image_raw /drone/imu /user_intent \
-         /mission_command /mission_status /mission_report \
+for t in /drone/cmd_vel /drone/odom /drone/goal /drone/goal_status \
+         /drone/camera/image_raw /drone/imu /user_intent \
+         /mission_command /mission_status /mission_report /mission_event \
          /perception/event /crowd_analytics /anomaly_alert /mission_abort; do
   require_topic_alive "$t"
 done
@@ -56,7 +57,8 @@ require_topic /crowd_analytics        "$MIN_HZ_ANALYTICS"
 
 hdr "Node liveness"
 for n in /llm_agent_node /report_node /yolov8_perception_node \
-         /crowd_analytics_node /anomaly_detection_node /mission_executor_node; do
+         /crowd_analytics_node /anomaly_detection_node /mission_executor_node \
+         /flight_controller_node; do
   if ros2 node list 2>/dev/null | grep -qx "$n"; then
     pass "$n alive"
   else
