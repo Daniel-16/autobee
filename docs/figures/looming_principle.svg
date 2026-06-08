@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="520" viewBox="0 0 880 520" font-family="'DejaVu Sans', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="flow" markerWidth="7" markerHeight="7" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#1f6f78"/>
+    </marker>
+    <marker id="dim" markerWidth="8" markerHeight="8" refX="4" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M6,0 L0,3 L6,6 Z" fill="#555"/>
+    </marker>
+    <marker id="dim2" markerWidth="8" markerHeight="8" refX="4" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="approach" markerWidth="9" markerHeight="9" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#264653"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="880" height="520" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="40" y="34" font-size="18" font-weight="bold" fill="#1a1a1a">Looming detection by radial optical-flow expansion</text>
+
+  <!-- ===================== Panel (a): image plane ===================== -->
+  <text x="44" y="74" font-size="15" font-weight="bold" fill="#1a1a1a">(a)</text>
+
+  <!-- camera frame -->
+  <rect x="50" y="90" width="470" height="360" fill="#fafafa" stroke="#333333" stroke-width="1.5"/>
+  <text x="58" y="108" font-size="12" fill="#666">camera image plane</text>
+
+  <!-- central tracking region (centre_frac = 0.6) -->
+  <rect x="144" y="162" width="282" height="216" fill="none" stroke="#5b8def" stroke-width="1.4" stroke-dasharray="6 4"/>
+  <text x="144" y="155" font-size="11.5" fill="#3b6fd0">central tracking region (0.6 × frame)</text>
+
+  <!-- scattered features: open circle (t-dt) -> arrow -> filled dot (t) -->
+  <!-- F2 -->
+  <line x1="321" y1="347" x2="331" y2="368.6" stroke="#1f6f78" stroke-width="2" marker-end="url(#flow)"/>
+  <circle cx="321" cy="347" r="3.8" fill="#ffffff" stroke="#888" stroke-width="1.4"/>
+  <circle cx="331" cy="368.6" r="3.8" fill="#d1495b"/>
+  <!-- F3 -->
+  <line x1="261.1" y1="335.8" x2="254.4" y2="354.2" stroke="#1f6f78" stroke-width="2" marker-end="url(#flow)"/>
+  <circle cx="261.1" cy="335.8" r="3.8" fill="#ffffff" stroke="#888" stroke-width="1.4"/>
+  <circle cx="254.4" cy="354.2" r="3.8" fill="#d1495b"/>
+  <!-- F4 -->
+  <line x1="198.9" y1="310.2" x2="174.8" y2="321.4" stroke="#1f6f78" stroke-width="2" marker-end="url(#flow)"/>
+  <circle cx="198.9" cy="310.2" r="3.8" fill="#ffffff" stroke="#888" stroke-width="1.4"/>
+  <circle cx="174.8" cy="321.4" r="3.8" fill="#d1495b"/>
+  <!-- F5 -->
+  <line x1="223.9" y1="247.8" x2="206.8" y2="241.5" stroke="#1f6f78" stroke-width="2" marker-end="url(#flow)"/>
+  <circle cx="223.9" cy="247.8" r="3.8" fill="#ffffff" stroke="#888" stroke-width="1.4"/>
+  <circle cx="206.8" cy="241.5" r="3.8" fill="#d1495b"/>
+  <!-- F6 -->
+  <line x1="246.9" y1="188.5" x2="236.3" y2="165.6" stroke="#1f6f78" stroke-width="2" marker-end="url(#flow)"/>
+  <circle cx="246.9" cy="188.5" r="3.8" fill="#ffffff" stroke="#888" stroke-width="1.4"/>
+  <circle cx="236.3" cy="165.6" r="3.8" fill="#d1495b"/>
+  <!-- F7 -->
+  <line x1="310.7" y1="199.5" x2="317.8" y2="179.8" stroke="#1f6f78" stroke-width="2" marker-end="url(#flow)"/>
+  <circle cx="310.7" cy="199.5" r="3.8" fill="#ffffff" stroke="#888" stroke-width="1.4"/>
+  <circle cx="317.8" cy="179.8" r="3.8" fill="#d1495b"/>
+
+  <!-- annotated example feature (horizontal, to the right of centre) -->
+  <!-- d_n dimension bracket above -->
+  <line x1="285" y1="252" x2="422.75" y2="252" stroke="#555" stroke-width="1" marker-start="url(#dim)" marker-end="url(#dim2)"/>
+  <text x="345" y="247" font-size="13" fill="#444" text-anchor="middle">d<tspan font-size="9.5" dy="3">n</tspan></text>
+  <!-- d_p along the ray -->
+  <line x1="285" y1="270" x2="380" y2="270" stroke="#444" stroke-width="1.1"/>
+  <text x="330" y="285" font-size="13" fill="#444" text-anchor="middle">d<tspan font-size="9.5" dy="3">p</tspan></text>
+  <!-- flow arrow prev -> now -->
+  <line x1="380" y1="270" x2="422.75" y2="270" stroke="#1f6f78" stroke-width="2.2" marker-end="url(#flow)"/>
+  <circle cx="380" cy="270" r="4.2" fill="#ffffff" stroke="#888" stroke-width="1.5"/>
+  <text x="380" y="290" font-size="11" fill="#555" text-anchor="middle">t − Δt</text>
+  <circle cx="422.75" cy="270" r="4.2" fill="#d1495b"/>
+  <text x="432" y="274" font-size="11" fill="#555">t</text>
+
+  <!-- image centre / focus of expansion -->
+  <line x1="278" y1="270" x2="292" y2="270" stroke="#1a1a1a" stroke-width="1.6"/>
+  <line x1="285" y1="263" x2="285" y2="277" stroke="#1a1a1a" stroke-width="1.6"/>
+  <text x="278" y="305" font-size="11.5" fill="#1a1a1a" text-anchor="middle">image centre</text>
+  <text x="278" y="319" font-size="11.5" fill="#1a1a1a" text-anchor="middle">(focus of expansion)</text>
+
+  <!-- legend -->
+  <circle cx="62" cy="474" r="3.8" fill="#ffffff" stroke="#888" stroke-width="1.4"/>
+  <text x="72" y="478" font-size="11.5" fill="#333">feature at t − Δt</text>
+  <circle cx="182" cy="474" r="3.8" fill="#d1495b"/>
+  <text x="192" y="478" font-size="11.5" fill="#333">feature at t</text>
+  <line x1="278" y1="474" x2="300" y2="474" stroke="#1f6f78" stroke-width="2.2" marker-end="url(#flow)"/>
+  <text x="306" y="478" font-size="11.5" fill="#333">optical flow (radial)</text>
+  <line x1="430" y1="474" x2="452" y2="474" stroke="#5b8def" stroke-width="1.4" stroke-dasharray="6 4"/>
+  <text x="458" y="478" font-size="11.5" fill="#333">tracking region</text>
+
+  <!-- ===================== Panel (b): approach geometry ===================== -->
+  <text x="556" y="74" font-size="15" font-weight="bold" fill="#1a1a1a">(b)</text>
+  <rect x="556" y="90" width="290" height="190" fill="#fbfbfb" stroke="#cccccc" stroke-width="1"/>
+
+  <!-- Z dimension -->
+  <line x1="600" y1="108" x2="812" y2="108" stroke="#555" stroke-width="1" marker-start="url(#dim)" marker-end="url(#dim2)"/>
+  <text x="706" y="103" font-size="12.5" fill="#444" text-anchor="middle">Z (range)</text>
+
+  <!-- camera body -->
+  <rect x="588" y="162" width="16" height="26" fill="#264653"/>
+  <circle cx="600" cy="175" r="4" fill="#e9e9e9" stroke="#264653" stroke-width="1.4"/>
+  <text x="596" y="206" font-size="11.5" fill="#333" text-anchor="middle">camera</text>
+
+  <!-- view frustum -->
+  <line x1="600" y1="175" x2="812" y2="124" stroke="#888" stroke-width="1" stroke-dasharray="4 3"/>
+  <line x1="600" y1="175" x2="812" y2="226" stroke="#888" stroke-width="1" stroke-dasharray="4 3"/>
+
+  <!-- obstacle -->
+  <rect x="812" y="118" width="20" height="114" fill="#8d99ae"/>
+  <text x="822" y="248" font-size="11.5" fill="#333" text-anchor="middle">obstacle</text>
+
+  <!-- approach arrow -->
+  <line x1="616" y1="258" x2="772" y2="258" stroke="#264653" stroke-width="2.4" marker-end="url(#approach)"/>
+  <text x="694" y="274" font-size="12.5" fill="#264653" text-anchor="middle">approach, speed v</text>
+
+  <!-- ===================== TTC relation ===================== -->
+  <rect x="556" y="300" width="290" height="150" fill="#f4f7fb" stroke="#5b8def" stroke-width="1"/>
+  <text x="572" y="324" font-size="14" font-weight="bold" fill="#1a1a1a">Time-to-contact (TTC)</text>
+
+  <text x="572" y="354" font-size="16" fill="#1a1a1a">τ  ≈  Δt / (r − 1)</text>
+  <text x="572" y="382" font-size="14" fill="#333">r = median( d<tspan font-size="10" dy="3">n</tspan><tspan dy="-3"> / d</tspan><tspan font-size="10" dy="3">p</tspan><tspan dy="-3"> )</tspan>,   r &gt; 1 ⇒ approaching</text>
+  <text x="572" y="408" font-size="13.5" fill="#333">expansion rate ∝ v / Z</text>
+  <text x="572" y="434" font-size="13.5" fill="#b3372a">alert when τ &lt; τ_th for N frames</text>
+  <text x="572" y="450" font-size="11.5" fill="#666">(τ_th = 1.5 s, N = 3 consecutive frames)</text>
+</svg>

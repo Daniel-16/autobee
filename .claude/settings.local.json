@@ -44,7 +44,14 @@
       "WebFetch(domain:app.gazebosim.org)",
       "WebFetch(domain:github.com)",
       "Bash(python3 *)",
-      "Bash(grep -E \"^/home/daniel-toba/Documents/AUTOBEE/workspace/src/[^/]+$\")"
+      "Bash(grep -E \"^/home/daniel-toba/Documents/AUTOBEE/workspace/src/[^/]+$\")",
+      "Bash(docker image *)",
+      "Bash(rsvg-convert -f pdf -o looming_principle.pdf looming_principle.svg)",
+      "Bash(rsvg-convert -f png -z 2.5 -o looming_principle.png looming_principle.svg)",
+      "Bash(rsvg-convert -f pdf -o mission_phases.pdf mission_phases.svg)",
+      "Bash(rsvg-convert -f png -z 2.0 -o mission_phases.png mission_phases.svg)",
+      "Bash(rsvg-convert -f pdf -o docs/figures/acceptance_summary.pdf docs/figures/acceptance_summary.svg)",
+      "Bash(rsvg-convert -f png -z 2 -o docs/figures/acceptance_summary.png docs/figures/acceptance_summary.svg)"
     ]
   }
 }

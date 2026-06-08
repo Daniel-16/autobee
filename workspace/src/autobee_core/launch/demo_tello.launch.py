@@ -57,17 +57,17 @@ def generate_launch_description():
     )
 
     # Indoor flight envelope. Conservative defaults.
-    cruise_alt_max = DeclareLaunchArgument("cruise_altitude_max_m", default_value="1.5")
-    default_cruise_alt = DeclareLaunchArgument("default_cruise_altitude_m", default_value="1.2")
-    default_radius = DeclareLaunchArgument("default_survey_radius_m", default_value="1.5")
+    cruise_alt_max = DeclareLaunchArgument("cruise_altitude_max_m", default_value="1.8")
+    default_cruise_alt = DeclareLaunchArgument("default_cruise_altitude_m", default_value="1.8")
+    default_radius = DeclareLaunchArgument("default_survey_radius_m", default_value="1.9")
     radius_max = DeclareLaunchArgument("survey_radius_max_m", default_value="1.5")
     max_xy_speed = DeclareLaunchArgument("max_xy_speed", default_value="0.3")
     max_z_speed = DeclareLaunchArgument("max_z_speed", default_value="0.3")
     max_yaw_rate = DeclareLaunchArgument("max_yaw_rate", default_value="0.4")
 
     # Tello driver scaling. cmd_vel of `linear_max_mps` -> 100% RC stick.
-    linear_max = DeclareLaunchArgument("linear_max_mps", default_value="1.0")
-    angular_max = DeclareLaunchArgument("angular_max_rps", default_value="1.0")
+    linear_max = DeclareLaunchArgument("linear_max_mps", default_value="1.5")
+    angular_max = DeclareLaunchArgument("angular_max_rps", default_value="1.5")
 
     # Sim-specific obstacle avoidance OFF — campus.sdf coords don't match reality.
     # Looming + YOLO backstop stays ON as the runtime safety net.
@@ -110,6 +110,13 @@ def generate_launch_description():
     )
     mission_logger = Node(
         package="autobee_core", executable="mission_logger_node", output="screen",
+        parameters=[{
+            "log_root": "/workspaces/AUTOBEE/mission_results",
+            "save_frames": True,
+            "frame_topic": "/perception/image_annotated",
+            "frame_interval_s": 1.0,
+            "zip_on_finish": True,
+        }],
     )
 
     # Mission executor with indoor-safe params + obstacle table off.
