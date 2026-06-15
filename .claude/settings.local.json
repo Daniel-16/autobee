@@ -52,7 +52,25 @@
       "Bash(rsvg-convert -f png -z 2.0 -o mission_phases.png mission_phases.svg)",
       "Bash(rsvg-convert -f pdf -o docs/figures/acceptance_summary.pdf docs/figures/acceptance_summary.svg)",
       "Bash(rsvg-convert -f png -z 2 -o docs/figures/acceptance_summary.png docs/figures/acceptance_summary.svg)",
-      "Bash(claude update *)"
+      "Bash(claude update *)",
+      "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force --prune-empty --index-filter 'git rm -r --cached --ignore-unmatch mission_results' -- origin/main..HEAD)",
+      "Bash(sed -n '130,145p' autobee_perception/autobee_perception/anomaly_detection_node.py)",
+      "Bash(sed -n '125,145p' autobee_perception/autobee_perception/crowd_analytics_node.py)",
+      "Bash(npm --version)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(npm install *)",
+      "Bash(pgrep -f \"npm install\")",
+      "Bash(break)",
+      "Bash(:)",
+      "Bash(ls node_modules/.bin/next)",
+      "Bash(pkill -f \"until \\\\[ -d node_modules\")",
+      "Bash(kill %1)",
+      "Bash(tail -6 /tmp/claude-1000/-home-daniel-toba-Documents-AUTOBEE/b244879f-1751-4036-a828-5e34d66292e3/tasks/bs8j17fvu.output)",
+      "Bash(pkill -f \"npm install\")",
+      "Bash(pkill -f \"next\")",
+      "Bash(kill -9 537975)",
+      "Bash(grep -E \"node_modules|\\\\.next|mission_results|\\\\.pt$|\\\\.env$\")",
+      "Bash(grep -E \"node_modules|\\\\.next/|mission_results|\\\\.pt$|\\\\.env$\")"
     ]
   }
 }

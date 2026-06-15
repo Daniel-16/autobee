@@ -1,7 +1,5 @@
-# AutoBee 🐝
+# AutoBee
 
-**Autonomous aerial surveillance drone for Bingham University campus.**
-CS dissertation project by Daniel Olamide Oloruntoba.
 
 AutoBee lets a non-pilot issue a natural-language command — *"check if the
 field is overcrowded"* — and have a drone autonomously plan a survey, fly it
