@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>autobee_ui</name>
+  <version>0.1.0</version>
+  <description>Web dashboard bridge: ROS topic graph &lt;-&gt; HTTP/SSE API for the Next.js control panel.</description>
+  <maintainer email="danieloloruntoba681@gmail.com">Daniel Oloruntoba</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <exec_depend>cv_bridge</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

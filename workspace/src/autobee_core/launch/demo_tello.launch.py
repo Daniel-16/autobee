@@ -135,6 +135,11 @@ def generate_launch_description():
         }],
     )
 
+    # Web dashboard bridge: drive the real drone + watch live from the browser.
+    web_ui = Node(
+        package="autobee_ui", executable="web_ui_node", output="screen",
+    )
+
     # Mission executor with indoor-safe params + obstacle table off.
     mission_executor = TimerAction(
         period=6.0,
@@ -197,6 +202,7 @@ def generate_launch_description():
         anomaly_detection,
         looming_detector,
         mission_logger,
+        web_ui,
         mission_executor,
         voice_group,
         slam_group,

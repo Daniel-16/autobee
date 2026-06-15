@@ -107,6 +107,14 @@ def generate_launch_description():
         output="screen",
     )
 
+    # Web dashboard bridge: exposes the topic graph over HTTP/SSE for the
+    # Next.js control panel (dashboard/). Reachable on :8080.
+    web_ui = Node(
+        package="autobee_ui",
+        executable="web_ui_node",
+        output="screen",
+    )
+
     mission_executor = TimerAction(
         period=6.0,
         actions=[
@@ -168,6 +176,7 @@ def generate_launch_description():
         looming_detector,
         flight_controller,
         mission_logger,
+        web_ui,
         mission_executor,
         voice_group,
         slam_group,

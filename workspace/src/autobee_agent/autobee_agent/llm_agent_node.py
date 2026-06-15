@@ -17,7 +17,9 @@ executor and report node stay compatible during the rollout):
       "intent": "<short phrase>"
     }
 
-GOOGLE_API_KEY required (loaded from /workspaces/AUTOBEE/.env). No mock fallback.
+GOOGLE_API_KEY (loaded from /workspaces/AUTOBEE/.env) enables LLM planning. When
+it's missing or the network is down (e.g. on the Tello's island Wi-Fi), planning
+falls back to a deterministic keyword parser (_rule_parse) so commands still run.
 """
 
 import json
@@ -88,6 +90,41 @@ SKILL_DEFAULTS = {
 }
 
 SKILL_NAMES = list(SKILL_DEFAULTS.keys())
+
+
+# --- Offline rule-based fallback ------------------------------------------
+# When there's no internet for the Gemini call (e.g. the laptop is on the
+# Tello's island Wi-Fi), planning falls back to this deterministic keyword
+# classifier. It mirrors the trigger phrases in SYSTEM_PROMPT so the default
+# dashboard commands keep working with no LLM. Order of the checks below is the
+# priority order; first match wins.
+
+# Multiword aliases first so "main gate" beats a bare "gate", etc.
+_LANDMARK_ALIASES = [
+    ("convocation ground", "convocation_ground"),
+    ("convocation", "convocation_ground"),
+    ("main gate", "main_gate"),
+    ("admin", "admin"),
+    ("library", "library"),
+    ("gate", "main_gate"),
+]
+
+_ABORT_KW = ("abort", "emergency", "danger", "land now", "land immediately",
+             "stop now", "kill")
+_RTH_KW = ("return", "come back", "go home", "back to base", "rth",
+           "go back", "fly back", "head back")
+_CROWD_KW = ("how many", "headcount", "head count", "overcrowd", "crowded",
+             "crowd", "how busy", "busy", "people", "packed", "count")
+_ANOMALY_KW = ("anomaly", "anomalies", "unusual", "weird", "wrong",
+               "suspicious", "something off", "is anything")
+_LANDMARK_VERBS = ("scan", "check", "inspect", "surveil", "survey", "look at")
+_HOVER_KW = ("around me", "orbit me", "watch me", "circle", "stay near me",
+             "follow me", "near me")
+_SWEEP_KW = ("sweep", "thorough", "every corner", "full scan", "comprehensive",
+             "full coverage", "entire area")
+_SCAN_KW = ("look around", "360", "in place", "what's around", "whats around",
+            "survey from here", "scan")
+_QUICK_KW = ("quick", "glance", "fast look", "brief")
 
 
 SYSTEM_PROMPT = """You are AutoBee's mission planner. AutoBee is an autonomous surveillance drone (DJI Tello class). You convert a non-pilot user's natural-language request into ONE valid JSON skill invocation.
@@ -225,9 +262,9 @@ class LLMAgentNode(Node):
         self.create_subscription(String, "/mission_event", self._on_event, 10)
 
         if self._client is None:
-            self.get_logger().fatal(
-                "Gemini client failed to initialise. Ensure GOOGLE_API_KEY is set in "
-                "/workspaces/AUTOBEE/.env."
+            self.get_logger().warn(
+                "Gemini client unavailable (no GOOGLE_API_KEY / no network) — "
+                "running in rule-based fallback mode; commands still execute."
             )
         else:
             self.get_logger().info(
@@ -237,7 +274,7 @@ class LLMAgentNode(Node):
     def _init_llm(self):
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
-            self.get_logger().warn("GOOGLE_API_KEY not set - running in MOCK mode")
+            self.get_logger().warn("GOOGLE_API_KEY not set - using rule-based fallback")
             return None
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
@@ -245,7 +282,7 @@ class LLMAgentNode(Node):
             from langchain_core.output_parsers import JsonOutputParser
         except ImportError as e:
             self.get_logger().warn(
-                f"langchain not installed ({e}) - running in MOCK mode."
+                f"langchain not installed ({e}) - using rule-based fallback."
             )
             return None
 
@@ -269,15 +306,19 @@ class LLMAgentNode(Node):
         text = msg.data.strip()
         if not text:
             return
-        if self._client is None:
-            self.get_logger().error("Gemini client not initialised; cannot plan mission.")
-            return
         self.get_logger().info(f"intent: {text!r}")
 
-        parsed = self._llm_parse(text)
+        # Try the LLM first if it's available; on any failure (no internet,
+        # bad output) drop to the deterministic keyword parser so a command is
+        # never silently dropped.
+        parsed = self._llm_parse(text) if self._client is not None else None
         if parsed is None:
-            self.get_logger().error("could not produce a valid skill invocation")
-            return
+            parsed = self._rule_parse(text)
+            reason = "LLM offline" if self._client is None else "LLM call failed"
+            self.get_logger().warn(
+                f"{reason} → rule-based plan: skill={parsed['skill']} "
+                f"landmark={parsed['params'].get('landmark')}"
+            )
 
         skill = parsed["skill"]
         intent = parsed["intent"]
@@ -381,6 +422,47 @@ class LLMAgentNode(Node):
         if not isinstance(params, dict):
             params = {}
         return {"skill": skill, "intent": intent, "params": params}
+
+    @staticmethod
+    def _extract_landmark(t):
+        for alias, canon in _LANDMARK_ALIASES:
+            if alias in t:
+                return canon
+        return None
+
+    def _rule_parse(self, text):
+        """Deterministic intent -> skill mapping (no LLM, never returns None).
+
+        Mirrors the SYSTEM_PROMPT triggers; safe default is a short local
+        survey so even an unrecognised command produces a sane mission.
+        """
+        t = text.lower()
+        landmark = self._extract_landmark(t)
+        has = lambda kws: any(k in t for k in kws)  # noqa: E731
+
+        if has(_ABORT_KW):
+            skill = "abort"
+        elif has(_RTH_KW) or t.strip() in ("land", "land the drone"):
+            skill = "return_home"
+        elif has(_CROWD_KW):
+            # Crowd/headcount intent wins even when a landmark is named
+            # ("how busy is the library" -> count_people @ library).
+            skill = "count_people"
+        elif landmark is not None and (has(_ANOMALY_KW) or has(_LANDMARK_VERBS)):
+            skill = "detect_anomaly_buildings"
+        elif has(_HOVER_KW):
+            skill = "hover_around_me"
+        elif has(_SWEEP_KW):
+            skill = "sweep_area"
+        elif has(_SCAN_KW):
+            skill = "scan_in_place"
+        elif has(_QUICK_KW):
+            skill = "quick_survey"
+        else:
+            skill = "quick_survey"
+
+        params = {"landmark": landmark} if landmark is not None else {}
+        return {"skill": skill, "intent": text, "params": params}
 
     def _compile_command(self, skill, intent, params, defaults):
         # Landmark: prefer params.landmark, else skill's force_landmark, else None.

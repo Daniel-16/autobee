@@ -115,7 +115,7 @@ class WhisperSTTNode(Node):
     def _listen_loop(self):
         sd = self._sd
         np = self._np
-        block_ms = 30  # processing granularity
+        block_ms = 30
         block_samples = int(self.sample_rate * block_ms / 1000)
         silence_blocks_required = max(1, int(self.silence_ms / block_ms))
         max_blocks = int(self.max_utterance_s * 1000 / block_ms)    
@@ -190,7 +190,6 @@ class WhisperSTTNode(Node):
         if not text:
             return
 
-        # Drop pure noise transcriptions whisper sometimes invents.
         if len(text) < 3:
             self.get_logger().warn(f"discarding short transcription: {text!r}")
             return

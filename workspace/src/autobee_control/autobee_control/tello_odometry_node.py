@@ -92,16 +92,6 @@ class TelloOdometryNode(Node):
             return
 
         now = self.get_clock().now()
-        if self._last_time is None:
-            self._last_time = now
-            self._last_yaw = math.radians(self._as_float(s.get("yaw_deg")))
-            return
-        dt = (now - self._last_time).nanoseconds / 1e9
-        self._last_time = now
-        if dt <= 0.0 or dt > self.max_dt:
-            # Skip integration for this step but keep yaw fresh for rate calc.
-            self._last_yaw = math.radians(self._as_float(s.get("yaw_deg")))
-            return
 
         # Body-frame velocity (cm/s -> m/s), REP-103 axes.
         vx = self._as_float(s.get("vx_cm_s")) * 0.01           # forward
@@ -112,22 +102,29 @@ class TelloOdometryNode(Node):
         pitch = math.radians(self._as_float(s.get("pitch_deg")))
         yaw = math.radians(self._as_float(s.get("yaw_deg")))
 
-        # Rotate horizontal body velocity into the world (odom) frame and
-        # integrate. Height comes from the sensor directly (more reliable than
-        # integrating vz).
-        cos_y, sin_y = math.cos(yaw), math.sin(yaw)
-        world_vx = vx * cos_y - vy * sin_y
-        world_vy = vx * sin_y + vy * cos_y
-        self.x += world_vx * dt
-        self.y += world_vy * dt
+        # Dead-reckon the horizontal pose only when dt is sane, but ALWAYS go on
+        # to publish odom below. Previously the first message and any slow
+        # telemetry step (dt > max_dt) returned early WITHOUT publishing, which
+        # could starve the flight controller of fresh /drone/odom — its
+        # freshness failsafe then zeroes cmd_vel and the drone never takes off.
+        yaw_rate = 0.0
+        if self._last_time is not None:
+            dt = (now - self._last_time).nanoseconds / 1e9
+            if 0.0 < dt <= self.max_dt:
+                cos_y, sin_y = math.cos(yaw), math.sin(yaw)
+                world_vx = vx * cos_y - vy * sin_y
+                world_vy = vx * sin_y + vy * cos_y
+                self.x += world_vx * dt
+                self.y += world_vy * dt
+                if self._last_yaw is not None:
+                    yaw_rate = self._wrap(yaw - self._last_yaw) / dt
+        self._last_time = now
+        self._last_yaw = yaw
+
+        # Height from the sensor directly (more reliable than integrating vz).
         height_cm = s.get("height_cm")
         if height_cm is not None:
             self.z = self._as_float(height_cm) * 0.01
-        else:
-            self.z += vz * dt
-
-        yaw_rate = self._wrap(yaw - (self._last_yaw if self._last_yaw is not None else yaw)) / dt
-        self._last_yaw = yaw
 
         odom = Odometry()
         odom.header.stamp = now.to_msg()

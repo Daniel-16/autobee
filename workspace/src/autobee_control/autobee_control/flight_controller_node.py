@@ -202,9 +202,16 @@ class FlightControllerNode(Node):
         if self._goal is None:
             self.cmd_pub.publish(Twist())
             return
-        # Failsafe: no fresh odom -> hold still.
+        # Failsafe: no fresh odom -> hold still. Warn (throttled) so a stale
+        # feedback link doesn't silently look like "command received, nothing
+        # happens" — without odom the controller can't command anything.
         if self._odom is None or (time.time() - self._odom_time) > self.odom_timeout:
             self.cmd_pub.publish(Twist())
+            self.get_logger().warn(
+                "holding: no fresh /drone/odom — controller disabled; "
+                "check tello_odometry_node / /drone/state stream",
+                throttle_duration_sec=2.0,
+            )
             return
 
         goal = self._goal

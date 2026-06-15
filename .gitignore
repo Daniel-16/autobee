@@ -13,3 +13,10 @@ __pycache__/
 .env.*.local
 
 mission_results/
+
+# Next.js dashboard
+dashboard/node_modules/
+dashboard/.next/
+dashboard/out/
+dashboard/.env.local
+dashboard/*.tsbuildinfo

@@ -38,11 +38,11 @@ class TTSNode(Node):
     def __init__(self):
         super().__init__("tts_node")
 
-        self.declare_parameter("backend", "auto")  # "auto" | "gtts" | "pyttsx3" | "print"
+        self.declare_parameter("backend", "auto")
         self.declare_parameter("language", "en")
         self.declare_parameter("speak_status", False)
         self.declare_parameter("max_chars", 600)
-        self.declare_parameter("audio_player", "")  # blank = autodetect
+        self.declare_parameter("audio_player", "")
         self.declare_parameter("speak_intro", True)
 
         backend_param = str(self.get_parameter("backend").value)
@@ -80,7 +80,6 @@ class TTSNode(Node):
             backend = self._try_init(name)
             if backend is not None:
                 return backend, name
-        # Should never hit; "print" never fails to init.
         return self._init_print(), "print"
 
     def _try_init(self, name):
@@ -95,7 +94,7 @@ class TTSNode(Node):
 
     def _init_gtts(self):
         try:
-            from gtts import gTTS  # noqa: F401
+            from gtts import gTTS
         except ImportError:
             self.get_logger().warn("gTTS not installed (pip install gtts)")
             return None
