@@ -27,7 +27,7 @@ on both.
 - [Web dashboard](#web-dashboard)
 - [Driving a mission](#driving-a-mission)
 - [Optional features (voice, SLAM)](#optional-features)
-- [Real DJI Tello](#real-dji-tello)
+- [Real DJI Tello (live drone + web dashboard)](#real-dji-tello-live-drone--web-dashboard)
 - [Troubleshooting](#troubleshooting)
 - [Project status](#project-status)
 
@@ -304,6 +304,9 @@ the bridge. Full details (config, production build, API) are in
 > The terminal workflow (`ros2 topic pub /user_intent ...`) still works too —
 > the dashboard just publishes to the same `/user_intent` topic.
 
+This section uses the **simulator**. To drive a **real Tello** from the same
+dashboard, see [Real DJI Tello (live drone + web dashboard)](#real-dji-tello-live-drone--web-dashboard).
+
 ---
 
 ## Driving a mission
@@ -364,20 +367,76 @@ SLAM. It's an optional drift-correction/mapping upgrade.
 
 ---
 
-## Real DJI Tello
+## Real DJI Tello (live drone + web dashboard)
 
-The autonomy code is Tello-portable: there's a dedicated launch file that swaps
-Gazebo for the real driver.
+The autonomy code is Tello-portable: `demo_tello.launch.py` swaps Gazebo for the
+real driver and brings up the **same** web bridge, so you fly the real drone
+from the dashboard exactly like the sim. Full procedure:
 
+### Pre-flight
+- Props on, **battery > 25%** (the driver refuses to arm below that), a clear
+  indoor space, flat floor. The Tello launch uses a conservative envelope
+  (≤ 1.8 m altitude, ~1.9 m radius) and does local survey/hover patterns.
+
+### 1. Enable host networking (Mac only — the drone link needs it)
+The Tello is controlled over its own Wi-Fi via UDP at `192.168.10.1`, so the
+container must share the host's network. On **Docker Desktop for Mac 4.29+**:
+**Settings → Resources → Network → tick "Enable host networking"**, then Apply &
+Restart. (On Linux this is native — nothing to enable.)
+
+> If you can't enable host networking, the real drone can't be reached from the
+> container on a Mac — fall back to a **Linux host** for live flight. The sim +
+> dashboard above don't need this.
+
+### 2. Connect to the Tello's Wi-Fi (host)
+Power on the Tello, then on your Mac join its Wi-Fi `TELLO-XXXXXX` (no password).
+
+> ⚠️ On the Tello's Wi-Fi your machine has **no internet**, so Gemini is
+> unreachable and the agent uses its built-in rule-based planner — commands
+> still work (the dashboard's default commands are all handled offline).
+
+### 3. Start the container with host networking
 ```bash
-ros2 launch autobee_core demo_tello.launch.py
+docker run --rm -it \
+  --network=host \
+  -v "$PWD/workspace":/root/autobee_ws \
+  -v "$PWD":/workspaces/AUTOBEE \
+  --name autobee_dev \
+  autobee:humble bash
+```
+(With `--network=host` you don't add `-p` — the container shares the host's
+ports, so the bridge is already at `localhost:8080`.) Verify the drone is
+reachable from inside the container:
+```bash
+ping -c 3 192.168.10.1
 ```
 
-⚠️ **Mac limitation:** the Tello is controlled over its own Wi-Fi network via
-UDP, which needs **host networking** between the container and the drone. Docker
-Desktop for Mac does not provide Linux-style host networking, so real-Tello
-flight is best done from a **Linux host**. This is hardware bring-up
-(Milestone 6) and is independent of everything above, which runs fully in sim.
+### 4. Build & launch the real-drone stack (in the container)
+```bash
+cd /root/autobee_ws
+colcon build --packages-skip autobee_slam
+source install/setup.bash
+ros2 launch autobee_core demo_tello.launch.py
+```
+Watch for these lines:
+```
+Tello connected. battery=NN%
+AutoBee dashboard live at http://localhost:8080
+```
+
+### 5. Run the dashboard and fly (on your Mac)
+```bash
+cd dashboard
+npm install        # first time only
+npm run dev
+```
+Open **http://localhost:3000**. The **Camera (live)** card shows the real Tello
+feed. Type a command (or click a chip) → the drone **auto-takes-off on the first
+movement command**, flies the mission, and lands on completion. The
+**EMERGENCY LAND** button (top-right) stops and lands it any time.
+
+> **First flight:** send `scan in place` first (a yaw-only sweep) to confirm it
+> rotates and holds position before trying commands that translate.
 
 ---
 
