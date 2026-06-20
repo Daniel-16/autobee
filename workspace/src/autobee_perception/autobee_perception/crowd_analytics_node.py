@@ -30,7 +30,6 @@ Output schema:
 
 import collections
 import json
-import math
 import statistics
 import time
 

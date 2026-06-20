@@ -4,12 +4,12 @@ import { Mission } from "@/lib/types";
 function eventBadge(event: string): { cls: string; label: string } {
   const e = (event || "").toLowerCase();
   if (e === "completed")
-    return { cls: "bg-emerald-500/15 text-emerald-400", label: "completed" };
+    return { cls: "border-ok/40 text-ok", label: "completed" };
   if (e === "aborted" || e === "failed")
-    return { cls: "bg-red-500/15 text-red-400", label: e };
+    return { cls: "border-danger/40 text-danger", label: e };
   if (e === "idle" || e === "")
-    return { cls: "bg-slate-500/15 text-slate-400", label: "idle" };
-  return { cls: "bg-blue-500/15 text-accent2", label: e };
+    return { cls: "border-line2 text-white/40", label: "idle" };
+  return { cls: "border-accent2/50 text-accent2", label: e };
 }
 
 export function MissionStatus({
@@ -24,17 +24,17 @@ export function MissionStatus({
   const dash = (v: string | null) => (v ? v : "—");
 
   return (
-    <Card title="Mission status" className={className}>
-      <div className="mb-4 flex items-center gap-4">
+    <Card title="Mission Status" className={className}>
+      <div className="mb-5 flex items-center gap-4">
         <div
-          className={`text-3xl font-extrabold tracking-wide ${
-            idle ? "text-slate-500" : "text-slate-100"
+          className={`display text-5xl leading-none ${
+            idle ? "text-white/30" : "text-white"
           }`}
         >
-          {mission.phase || "IDLE"}
+          {mission.phase && mission.phase !== "—" ? mission.phase : "IDLE"}
         </div>
         <span
-          className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${badge.cls}`}
+          className={`eyebrow rounded-none border px-3 py-1 text-[10px] ${badge.cls}`}
         >
           {badge.label}
         </span>

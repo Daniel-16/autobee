@@ -70,7 +70,17 @@
       "Bash(pkill -f \"next\")",
       "Bash(kill -9 537975)",
       "Bash(grep -E \"node_modules|\\\\.next|mission_results|\\\\.pt$|\\\\.env$\")",
-      "Bash(grep -E \"node_modules|\\\\.next/|mission_results|\\\\.pt$|\\\\.env$\")"
+      "Bash(grep -E \"node_modules|\\\\.next/|mission_results|\\\\.pt$|\\\\.env$\")",
+      "Bash(pip install *)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"tsc exit: $?\")",
+      "Read(//tmp/**)",
+      "Bash(npx next *)",
+      "Bash(echo \"build exit: $?\")",
+      "Bash(kill 205842 205843 205854 206629)",
+      "Bash(google-chrome --headless=new --disable-gpu --hide-scrollbars --window-size=1440,900 --virtual-time-budget=9000 --screenshot=/tmp/hero_img.png http://localhost:3000)",
+      "Bash(echo \"exit $?\")",
+      "Bash(./node_modules/.bin/tsc --noEmit -p tsconfig.json)"
     ]
   }
 }

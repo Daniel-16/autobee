@@ -8,11 +8,13 @@ export function Report({
   className?: string;
 }) {
   return (
-    <Card title="Mission report" className={className}>
+    <Card title="Mission Report" className={className}>
       {text ? (
-        <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{text}</p>
+        <p className="max-w-3xl whitespace-pre-wrap text-[15px] font-light leading-relaxed text-white/80">
+          {text}
+        </p>
       ) : (
-        <span className="text-sm italic text-slate-500">
+        <span className="text-sm font-light italic text-white/30">
           The report appears here when the mission finishes.
         </span>
       )}

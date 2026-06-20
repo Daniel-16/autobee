@@ -93,6 +93,7 @@ class MissionLoggerNode(Node):
                 "save_frames requested but numpy/cv2 unavailable; saving logs only")
 
         self._mission_dir = None
+        self._mission_start = None
         self._frames_dir = None
         self._frame_count = 0
         self._last_frame_save = 0.0
@@ -212,6 +213,7 @@ class MissionLoggerNode(Node):
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         dirname = f"{ts}_{intent_slug}"
         self._mission_dir = os.path.join(self.log_root, dirname)
+        self._mission_start = time.time()
         os.makedirs(self._mission_dir, exist_ok=True)
         if self.save_frames:
             self._frames_dir = os.path.join(self._mission_dir, "frames")
@@ -237,7 +239,10 @@ class MissionLoggerNode(Node):
             "phase": status_payload.get("phase"),
             "reason": status_payload.get("reason", ""),
             "intent": status_payload.get("intent", ""),
-            "duration_s": status_payload.get("elapsed_s"),
+            "duration_s": (
+                round(time.time() - self._mission_start, 1)
+                if self._mission_start else None
+            ),
             "perception_events": self._counters["events"],
             "analytics_samples": self._counters["analytics"],
             "anomaly_alerts": self._counters["anomalies"],

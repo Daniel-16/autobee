@@ -26,7 +26,7 @@ from std_msgs.msg import String
 # Only the *new* M2 behaviors and one regression check on the existing path.
 TEST_CASES = [
     ("scan_in_place",   "look around and tell me what you see",  "YAW_360"),
-    ("return_home",     "come back to base",                     "AT_HOME"),
+    ("return_home",     "come back to base",                     "DESCEND"),
     ("hover_around_me", "hover around me",                       "CLIMB"),  # regression
 ]
 

@@ -30,7 +30,6 @@ Falls back gracefully:
 """
 
 import collections
-import os
 import threading
 import time
 

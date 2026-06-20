@@ -35,30 +35,31 @@ export function CommandBar({
   }
 
   return (
-    <div className="mb-5 rounded-2xl border border-line bg-panel p-5">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-        Give the drone a command
+    <div className="relative overflow-hidden border border-line bg-panel/70 p-6 backdrop-blur-sm sm:p-8">
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+      <h2 className="eyebrow mb-5 text-[10px] text-white/45">
+        Command Input · Natural Language
       </h2>
-      <div className="flex gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="e.g. check if the convocation ground is overcrowded"
+          placeholder="Speak the mission — e.g. check if the convocation ground is overcrowded"
           spellCheck={false}
           autoComplete="off"
-          className="flex-1 rounded-xl border border-line bg-bg px-4 py-3 text-[15px] outline-none transition focus:border-accent2"
+          className="flex-1 border border-line bg-black/40 px-4 py-3.5 text-[15px] font-light text-white outline-none transition placeholder:text-white/30 focus:border-white/40"
         />
         <button
           onClick={() => submit()}
           disabled={busy}
-          className="rounded-xl bg-accent px-6 text-[15px] font-bold text-slate-900 transition active:translate-y-px disabled:opacity-60"
+          className="eyebrow border border-white/70 px-8 py-3.5 text-[11px] text-white transition-colors duration-300 hover:bg-white hover:text-black disabled:opacity-40"
         >
-          {busy ? "…" : "Send ▸"}
+          {busy ? "Sending…" : "Engage"}
         </button>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap gap-2">
         {SUGGESTIONS.map((s) => (
           <button
             key={s}
@@ -66,7 +67,7 @@ export function CommandBar({
               setText(s);
               submit(s);
             }}
-            className="rounded-full border border-line bg-panel2 px-3 py-1.5 text-[13px] text-slate-400 transition hover:border-accent2 hover:text-slate-100"
+            className="border border-line px-3 py-1.5 text-[12px] font-light text-white/45 transition-colors duration-300 hover:border-white/40 hover:text-white"
           >
             {s}
           </button>
@@ -75,8 +76,8 @@ export function CommandBar({
 
       {msg && (
         <div
-          className={`mt-3 min-h-[18px] text-sm ${
-            msg.ok ? "text-emerald-400" : "text-red-400"
+          className={`mt-4 min-h-[18px] text-sm ${
+            msg.ok ? "text-ok" : "text-danger"
           }`}
         >
           {msg.text}

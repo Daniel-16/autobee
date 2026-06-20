@@ -30,7 +30,6 @@ Why not dense flow / why not MiDaS:
     mission_executor.
 """
 
-import collections
 import json
 import time
 

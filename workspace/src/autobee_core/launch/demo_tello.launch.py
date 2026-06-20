@@ -59,7 +59,7 @@ def generate_launch_description():
     # Indoor flight envelope. Conservative defaults.
     cruise_alt_max = DeclareLaunchArgument("cruise_altitude_max_m", default_value="1.8")
     default_cruise_alt = DeclareLaunchArgument("default_cruise_altitude_m", default_value="1.8")
-    default_radius = DeclareLaunchArgument("default_survey_radius_m", default_value="1.9")
+    default_radius = DeclareLaunchArgument("default_survey_radius_m", default_value="1.4")
     radius_max = DeclareLaunchArgument("survey_radius_max_m", default_value="1.5")
     max_xy_speed = DeclareLaunchArgument("max_xy_speed", default_value="0.3")
     max_z_speed = DeclareLaunchArgument("max_z_speed", default_value="0.3")
