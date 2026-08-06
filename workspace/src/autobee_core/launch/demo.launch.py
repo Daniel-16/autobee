@@ -40,6 +40,10 @@ def generate_launch_description():
         "slam", default_value="false",
         description="Bring up ORB-SLAM3 wrapper for /drone/pose feedback.",
     )
+    headless_arg = DeclareLaunchArgument(
+        "headless", default_value="true",
+        description="Run Gazebo in headless mode (recommended in the dev container).",
+    )
     tts_backend_arg = DeclareLaunchArgument(
         "tts_backend", default_value="auto",
         description="TTS backend: auto | gtts | pyttsx3 | print",
@@ -54,7 +58,8 @@ def generate_launch_description():
     )
 
     bring_up_sim = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(sim_launch)
+        PythonLaunchDescriptionSource(sim_launch),
+        launch_arguments=[("headless", LaunchConfiguration("headless"))],
     )
 
     llm_agent = Node(
@@ -116,7 +121,7 @@ def generate_launch_description():
     )
 
     mission_executor = TimerAction(
-        period=6.0,
+        period=12.0,
         actions=[
             Node(
                 package="autobee_core",
@@ -165,6 +170,7 @@ def generate_launch_description():
     return LaunchDescription([
         voice_arg,
         slam_arg,
+        headless_arg,
         tts_backend_arg,
         whisper_model_arg,
         bring_up_sim,
