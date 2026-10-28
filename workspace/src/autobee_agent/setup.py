@@ -15,7 +15,7 @@ setup(
     maintainer="Daniel Oloruntoba",
     maintainer_email="danieloloruntoba681@gmail.com",
     description="LLM mission planner: natural-language intent -> mission JSON.",
-    license="MIT",
+    license="Proprietary",
     entry_points={
         "console_scripts": [
             "llm_agent_node = autobee_agent.llm_agent_node:main",

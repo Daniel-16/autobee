@@ -4,7 +4,7 @@
   <version>0.1.0</version>
   <description>AutoBee Gazebo Fortress simulation: campus world, drone model, ros_gz bridge.</description>
   <maintainer email="danieloloruntoba681@gmail.com">Daniel Oloruntoba</maintainer>
-  <license>MIT</license>
+  <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

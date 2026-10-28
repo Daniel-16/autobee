@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>Open-loop patrol behaviours for the AutoBee drone (scaffold until Phase 5 Nav2).</description>
   <maintainer email="danieloloruntoba681@gmail.com">Daniel Oloruntoba</maintainer>
-  <license>MIT</license>
+  <license>Proprietary</license>
 
   <depend>rclpy</depend>
   <depend>geometry_msgs</depend>

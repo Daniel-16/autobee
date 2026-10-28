@@ -15,7 +15,7 @@ setup(
     maintainer="Daniel Oloruntoba",
     maintainer_email="danieloloruntoba681@gmail.com",
     description="Open-loop patrol behaviours for the AutoBee drone.",
-    license="MIT",
+    license="Proprietary",
     entry_points={
         "console_scripts": [
             "patrol_node = autobee_control.patrol_node:main",

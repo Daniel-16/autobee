@@ -15,7 +15,7 @@ setup(
     maintainer="Daniel Oloruntoba",
     maintainer_email="danieloloruntoba681@gmail.com",
     description="YOLOv8-based aerial perception emitting structured detections.",
-    license="MIT",
+    license="Proprietary",
     entry_points={
         "console_scripts": [
             "yolov8_perception_node = autobee_perception.yolov8_perception_node:main",

@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>YOLOv8-based aerial perception: detections, crowd count, anomaly flags.</description>
   <maintainer email="danieloloruntoba681@gmail.com">Daniel Oloruntoba</maintainer>
-  <license>MIT</license>
+  <license>Proprietary</license>
 
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>

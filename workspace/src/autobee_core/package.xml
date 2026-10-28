@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>Mission executor and waypoint generators that turn mission plans into cmd_vel.</description>
   <maintainer email="danieloloruntoba681@gmail.com">Daniel Oloruntoba</maintainer>
-  <license>MIT</license>
+  <license>Proprietary</license>
 
   <depend>rclpy</depend>
   <depend>geometry_msgs</depend>

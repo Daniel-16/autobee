@@ -16,7 +16,7 @@ setup(
     maintainer="Daniel Oloruntoba",
     maintainer_email="danieloloruntoba681@gmail.com",
     description="Real-Tello driver bridging djitellopy to the AutoBee /drone/* topic graph.",
-    license="MIT",
+    license="Proprietary",
     entry_points={
         "console_scripts": [
             "tello_driver_node = autobee_tello.tello_driver_node:main",

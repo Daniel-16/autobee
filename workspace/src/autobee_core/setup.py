@@ -16,7 +16,7 @@ setup(
     maintainer="Daniel Oloruntoba",
     maintainer_email="danieloloruntoba681@gmail.com",
     description="Mission executor and waypoint generators for AutoBee.",
-    license="MIT",
+    license="Proprietary",
     entry_points={
         "console_scripts": [
             "mission_executor_node = autobee_core.mission_executor_node:main",

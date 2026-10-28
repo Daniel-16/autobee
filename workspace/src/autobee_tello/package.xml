@@ -4,7 +4,7 @@
   <version>0.1.0</version>
   <description>DJI Tello driver: bridges djitellopy to the AutoBee /drone/* topic graph.</description>
   <maintainer email="danieloloruntoba681@gmail.com">Daniel Oloruntoba</maintainer>
-  <license>MIT</license>
+  <license>Proprietary</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>

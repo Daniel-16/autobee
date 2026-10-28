@@ -16,7 +16,7 @@ setup(
     maintainer="Daniel Oloruntoba",
     maintainer_email="danieloloruntoba681@gmail.com",
     description="Voice I/O for AutoBee: Whisper STT + gTTS TTS.",
-    license="MIT",
+    license="Proprietary",
     entry_points={
         "console_scripts": [
             "whisper_stt_node = autobee_voice.whisper_stt_node:main",
