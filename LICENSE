@@ -1,5 +1,10 @@
-AutoBee — Proprietary Software License
+AutoBee — Source-Available Proprietary License
 Copyright (c) 2026 Daniel Olamide Oloruntoba. All rights reserved.
+
+The source code of AutoBee is published openly so that it can be read, cited,
+studied, and independently verified. It is NOT open-source software: all rights
+remain with the Licensor, and the permissions below are limited to
+non-commercial study, research, and verification.
 
 1. DEFINITIONS
 
@@ -15,48 +20,75 @@ Copyright (c) 2026 Daniel Olamide Oloruntoba. All rights reserved.
    "You" means the individual or legal entity in possession of a copy of the
    Software.
 
+   "Permitted Purpose" means, collectively: private study and self-education;
+   non-commercial academic research; teaching and classroom use; peer review;
+   and reproducing, verifying, or evaluating the results, claims, and methods
+   that the Licensor has published about the Software. It expressly excludes
+   any commercial, production, operational, or revenue-generating use.
+
 2. OWNERSHIP
 
-   The Software is proprietary and confidential. It is licensed, not sold. The
-   Licensor retains all right, title, and interest in and to the Software,
-   including all intellectual property rights therein. No rights are granted
-   to You except those expressly stated in this License.
+   The Software is proprietary. It is licensed, not sold. The Licensor retains
+   all right, title, and interest in and to the Software, including all
+   intellectual property rights therein. No rights are granted to You except
+   those expressly stated in this License. Publication of the source code does
+   not place it in the public domain and does not constitute a waiver of any
+   right.
 
-3. LIMITED PERMISSION FOR ACADEMIC EVALUATION
+3. GRANT OF PERMISSION
 
-   Solely to permit the academic assessment of the Software as a Computer
-   Science dissertation project, the Licensor grants a non-exclusive,
-   non-transferable, royalty-free, revocable permission to the examiners,
-   supervisors, and authorised academic staff of Bingham University to view,
-   execute, and evaluate the Software for the purpose of marking, moderating,
-   and verifying that academic work. This permission confers no right to copy,
-   publish, redistribute, sublicense, or make any other use of the Software,
-   and it terminates on completion of the assessment process.
+   Subject to the restrictions in Section 4, the Licensor grants You a
+   worldwide, non-exclusive, non-transferable, royalty-free, revocable
+   permission to:
+
+   (a) view, read, and analyse the source code of the Software;
+   (b) reproduce the Software by cloning or downloading this repository, and
+       retain copies, for the Permitted Purpose;
+   (c) compile, install, execute, and operate the Software — in simulation or
+       on hardware You lawfully control — for the Permitted Purpose;
+   (d) modify the Software privately to the extent reasonably necessary to
+       build, run, repair, or evaluate it for the Permitted Purpose; and
+   (e) quote short excerpts of the source code in academic papers, theses,
+       reviews, articles, and presentations, with attribution.
+
+   The examiners, supervisors, and authorised academic staff of Bingham
+   University are additionally permitted to view, execute, and evaluate the
+   Software for the purpose of marking, moderating, and verifying the
+   Licensor's Computer Science dissertation.
 
 4. RESTRICTIONS
 
-   Except as expressly permitted in Section 3, or under a separate written
-   agreement signed by the Licensor, You may NOT:
+   Except under a separate written agreement signed by the Licensor, You may
+   NOT:
 
-   (a) use, run, or execute the Software for any purpose, whether commercial,
-       personal, academic, or otherwise;
-   (b) copy, reproduce, publish, host, or distribute the Software, in whole or
-       in part, in source or compiled form;
-   (c) modify, adapt, translate, or create derivative works of the Software;
-   (d) reverse engineer, decompile, or disassemble any compiled portion of the
-       Software, except to the extent such restriction is prohibited by
-       applicable law;
-   (e) sell, lease, rent, lend, sublicense, assign, or otherwise transfer the
-       Software or any rights in it;
-   (f) remove, obscure, or alter any copyright, trademark, or other proprietary
-       notice contained in the Software;
-   (g) use the Software, or any part of it, to train, fine-tune, evaluate, or
-       otherwise develop any machine learning or artificial intelligence model
-       or system; or
-   (h) use the name "AutoBee", or the name of the Licensor, to endorse or
-       promote any product or service.
+   (a) use the Software, or any part of it, for any commercial, production,
+       operational, or revenue-generating purpose, or incorporate it into any
+       product or service offered to third parties, whether or not for a fee;
+   (b) redistribute, publish, host, mirror, sublicense, sell, lease, rent,
+       lend, or otherwise make the Software available to third parties, in
+       source or compiled form, in whole or in part, beyond linking or
+       referring others to the Licensor's own repository;
+   (c) distribute, publish, or otherwise make available any modified version
+       of, or derivative work based on, the Software;
+   (d) relicense the Software, or represent it as being available under an
+       open-source or other license;
+   (e) remove, obscure, or alter any copyright, attribution, or other
+       proprietary notice contained in the Software, including this License;
+   (f) use the Software, or any part of it, to train, fine-tune, or otherwise
+       develop any machine learning or artificial intelligence model, or to
+       create any dataset for that purpose; or
+   (g) use the name "AutoBee", or the name of the Licensor, to endorse or
+       promote any product or service, or in a manner suggesting affiliation
+       or endorsement that does not exist.
 
-5. THIRD-PARTY COMPONENTS
+5. ATTRIBUTION
+
+   Any publication, thesis, article, presentation, or other work that relies
+   on, evaluates, or reports results obtained from the Software must credit the
+   Software and the Licensor, and should cite the repository, following any
+   citation metadata the Licensor provides alongside it.
+
+6. THIRD-PARTY COMPONENTS
 
    The Software is designed to operate alongside third-party software that is
    not owned by the Licensor and is not covered by this License. Such
@@ -69,13 +101,13 @@ Copyright (c) 2026 Daniel Olamide Oloruntoba. All rights reserved.
    responsible for complying with the license terms of every third-party
    component You obtain or use.
 
-6. FEEDBACK
+7. FEEDBACK
 
-   Any suggestion, bug report, or other feedback You voluntarily provide to the
-   Licensor regarding the Software may be used by the Licensor without
+   Any suggestion, bug report, patch, or other feedback You voluntarily provide
+   to the Licensor regarding the Software may be used by the Licensor without
    restriction or obligation to You.
 
-7. NO WARRANTY
+8. NO WARRANTY
 
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -86,7 +118,7 @@ Copyright (c) 2026 Daniel Olamide Oloruntoba. All rights reserved.
    WITHOUT ERROR, THAT ANY FLIGHT WILL BE SAFE, OR THAT ANY OUTPUT WILL BE
    ACCURATE.
 
-8. LIMITATION OF LIABILITY
+9. LIMITATION OF LIABILITY
 
    TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE
    LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGE, LOSS, OR OTHER LIABILITY —
@@ -94,26 +126,30 @@ Copyright (c) 2026 Daniel Olamide Oloruntoba. All rights reserved.
    CONSEQUENTIAL DAMAGES; LOSS OF DATA, PROFITS, OR GOODWILL; PERSONAL INJURY;
    DEATH; OR DAMAGE TO PROPERTY OR AIRCRAFT — ARISING FROM OR IN CONNECTION
    WITH THE SOFTWARE OR ITS USE, WHETHER IN CONTRACT, TORT, OR OTHERWISE, EVEN
-   IF THE LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+   IF THE LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. YOU
+   OPERATE THE SOFTWARE ENTIRELY AT YOUR OWN RISK.
 
-9. REGULATORY COMPLIANCE
+10. REGULATORY COMPLIANCE
 
-   Operation of an unmanned aerial vehicle is subject to aviation, privacy, and
-   data protection law. Anyone operating the Software on real hardware is solely
-   responsible for obtaining all required authorisations and for complying with
-   all applicable regulations, including those of the Nigerian Civil Aviation
-   Authority and any institutional policy governing the airspace and the
-   recording of identifiable persons.
+    Operation of an unmanned aerial vehicle is subject to aviation, privacy, and
+    data protection law. Anyone operating the Software on real hardware is solely
+    responsible for obtaining all required authorisations and for complying with
+    all applicable regulations, including those of the Nigerian Civil Aviation
+    Authority or the equivalent authority in their jurisdiction, and any
+    institutional policy governing the airspace and the recording of
+    identifiable persons.
 
-10. TERMINATION
+11. TERMINATION
 
-    Any permission granted under this License terminates automatically and
-    immediately, without notice, if You breach any term of it. Upon termination
-    You must cease all use of the Software and destroy all copies in Your
-    possession or control. Sections 2, 4, 5, 7, 8, 9, and 11 survive
-    termination.
+    The permissions granted under this License terminate automatically and
+    immediately, without notice, if You breach any term of it. The Licensor may
+    also revoke them at any time on written notice. Upon termination You must
+    cease all use of the Software and destroy all copies in Your possession or
+    control, except that You may retain copies solely as required by an
+    archival or research-integrity obligation. Sections 2, 4, 5, 6, 8, 9, 10,
+    and 12 survive termination.
 
-11. GENERAL
+12. GENERAL
 
     This License is governed by the laws of the Federal Republic of Nigeria,
     without regard to its conflict of laws provisions. If any provision is held
@@ -122,10 +158,11 @@ Copyright (c) 2026 Daniel Olamide Oloruntoba. All rights reserved.
     understanding. No failure or delay by the Licensor in enforcing any right
     constitutes a waiver of it.
 
-12. LICENSING ENQUIRIES
+13. LICENSING ENQUIRIES
 
-    For permission to use the Software beyond Section 3, or to discuss
-    commercial licensing, contact:
+    For permission to use the Software beyond the scope of Section 3 —
+    including any commercial or operational use — or to discuss commercial
+    licensing, contact:
 
         Daniel Olamide Oloruntoba
         danieloloruntoba681@gmail.com
