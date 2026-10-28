@@ -1,0 +1,47 @@
+cff-version: 1.2.0
+title: AutoBee
+message: >-
+  If you use this software, or report results obtained from it, please cite the
+  report below.
+type: software
+authors:
+  - family-names: Oloruntoba
+    given-names: Daniel Olamide
+    affiliation: Bingham University
+repository-code: "https://github.com/Daniel-16/autobee"
+abstract: >-
+  AutoBee is an autonomous aerial surveillance system that lets a non-pilot
+  issue a natural-language command and have a low-cost drone plan a survey, fly
+  it under closed-loop velocity control, avoid obstacles from its camera, count
+  crowds, and report back. A language-model planner sits outside the inner
+  control loop behind an explicit validation gate; the simulator (Gazebo) and a
+  real DJI Tello share an identical ROS 2 topic graph, so the same autonomy code
+  runs on both.
+keywords:
+  - autonomous drone
+  - aerial surveillance
+  - ROS 2
+  - large language model
+  - mission planning
+  - obstacle avoidance
+  - crowd analytics
+  - DJI Tello
+license-url: "https://github.com/Daniel-16/autobee/blob/main/LICENSE"
+preferred-citation:
+  type: report
+  title: >-
+    AutoBee: An Explicit Validation Gate Between a Language-Model Planner and a
+    Low-Cost Aerial Robot
+  authors:
+    - family-names: Oloruntoba
+      given-names: Daniel Olamide
+      affiliation: Bingham University
+  institution:
+    name: Bingham University
+  publisher:
+    name: Zenodo
+  year: 2026
+  month: 10
+  version: 0.0.1
+  doi: 10.5281/zenodo.22085150
+  url: "https://doi.org/10.5281/zenodo.22085150"

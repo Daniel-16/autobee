@@ -1,5 +1,7 @@
 # AutoBee
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22085150.svg)](https://doi.org/10.5281/zenodo.22085150)
+[![License: Source-Available Proprietary](https://img.shields.io/badge/license-source--available%20proprietary-blue)](LICENSE)
 
 AutoBee lets a non-pilot issue a natural-language command — *"check if the
 field is overcrowded"* — and have a drone autonomously plan a survey, fly it
@@ -28,6 +30,8 @@ on both.
 - [Real DJI Tello (live drone + web dashboard)](#real-dji-tello-live-drone--web-dashboard)
 - [Troubleshooting](#troubleshooting)
 - [Project status](#project-status)
+- [Citation](#citation)
+- [License](#license)
 
 ---
 
@@ -467,6 +471,53 @@ movement command**, flies the mission, and lands on completion. The
 Closed-loop autonomy (milestones 1–5) is implemented and ready for sim
 validation; real-Tello bring-up awaits hardware. See [`CLAUDE.md`](CLAUDE.md)
 and the PRD for detail.
+
+---
+
+## Citation
+
+AutoBee is described in:
+
+> Oloruntoba, D. O. (2026). *AutoBee: An Explicit Validation Gate Between a
+> Language-Model Planner and a Low-Cost Aerial Robot.* Bingham University.
+> Zenodo. https://doi.org/10.5281/zenodo.22085150
+
+If you use this software, or report results obtained from it, please cite that
+report. GitHub renders a ready-made citation from [`CITATION.cff`](CITATION.cff)
+via the **Cite this repository** button, and BibTeX is below.
+
+```bibtex
+@techreport{oloruntoba2026autobee,
+  title       = {AutoBee: An Explicit Validation Gate Between a Language-Model
+                 Planner and a Low-Cost Aerial Robot},
+  author      = {Oloruntoba, Daniel Olamide},
+  institution = {Bingham University},
+  year        = {2026},
+  month       = {10},
+  doi         = {10.5281/zenodo.22085150},
+  url         = {https://doi.org/10.5281/zenodo.22085150}
+}
+```
+
+The report itself is published under CC BY 4.0. The source code in this
+repository is not — see below.
+
+## License
+
+Source-available, but **not open source**. See [`LICENSE`](LICENSE) for the
+full terms. In short:
+
+- **You may** read, clone, build, run, and privately modify AutoBee for private
+  study, non-commercial academic research, teaching, peer review, and
+  reproducing or verifying the published results, with attribution.
+- **You may not** use it commercially or operationally, redistribute it,
+  publish modified versions, relicense it, or use it to train AI models.
+
+Copyright (c) 2026 Daniel Olamide Oloruntoba. All rights reserved. For
+commercial or operational use, contact danieloloruntoba681@gmail.com.
+
+Third-party dependencies (ROS 2, Gazebo, ORB-SLAM3, Ultralytics YOLO, PyTorch,
+LangChain, and others) remain under their own licenses, some of them copyleft.
 
 ---
 

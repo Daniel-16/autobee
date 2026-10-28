@@ -85,8 +85,13 @@ non-commercial study, research, and verification.
 
    Any publication, thesis, article, presentation, or other work that relies
    on, evaluates, or reports results obtained from the Software must credit the
-   Software and the Licensor, and should cite the repository, following any
-   citation metadata the Licensor provides alongside it.
+   Software and the Licensor, and should cite the Licensor's report describing
+   it — "AutoBee: An Explicit Validation Gate Between a Language-Model Planner
+   and a Low-Cost Aerial Robot" (Bingham University, 2026),
+   https://doi.org/10.5281/zenodo.22085150 — following the citation metadata
+   provided alongside the Software in the file CITATION.cff. Nothing in this
+   Section restricts ordinary scholarly citation or quotation of the Licensor's
+   published work, which is published under its own separate terms.
 
 6. THIRD-PARTY COMPONENTS
 
