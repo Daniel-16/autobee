@@ -10,6 +10,18 @@ count crowds, and speak/write back a report. The simulator (Gazebo) and the real
 DJI Tello share an identical ROS 2 topic graph, so the same autonomy code runs
 on both.
 
+> **Which version does the report describe?** The technical report
+> ([doi:10.5281/zenodo.22085150](https://doi.org/10.5281/zenodo.22085150))
+> evaluates an earlier version of this code, tagged
+> [`report-v0.0.1`](https://github.com/Daniel-16/autobee/tree/report-v0.0.1). In that version the mission
+> executor ran open loop on a timed velocity schedule, the planner required
+> Gemini, and the LLM made no mid-mission decisions. On 8 June 2026 the executor
+> was rewritten as the closed-loop goal sequencer described in this README, and
+> the agent gained a tactical layer and an offline rule-based planner. The
+> current version has **not** yet been through the acceptance evaluation, so the
+> report's numbers (25 of 34 runs passed, 73.5%) apply to the tagged version
+> only.
+
 > **Heads-up for the person running this on a Mac:** jump straight to
 > [Running on macOS](#running-on-macos). The rest of this README explains the
 > system; that section is the step-by-step.
@@ -19,6 +31,7 @@ on both.
 ## Table of contents
 
 - [What it does](#what-it-does)
+- [The validation gate](#the-validation-gate)
 - [Architecture at a glance](#architecture-at-a-glance)
 - [Tech stack](#tech-stack)
 - [Repository layout](#repository-layout)
@@ -38,8 +51,11 @@ on both.
 ## What it does
 
 1. You give it an intent in plain English (typed, or spoken if voice is on).
-2. An **LLM agent** (Google Gemini) turns that into a structured mission plan
-   (which landmark, what altitude, what survey radius).
+2. An **LLM agent** (Google Gemini) picks one skill from a closed catalogue of
+   eight and proposes its parameters (landmark, altitude, survey radius). With
+   no internet, a deterministic keyword parser does the same job. Either way,
+   the [validation gate](#the-validation-gate) checks the result before
+   anything is published to the executor.
 3. A **mission executor** breaks the plan into a sequence of geometric goals,
    pre-routing around known buildings/trees.
 4. A **flight controller** flies to each goal with closed-loop velocity control,
@@ -48,12 +64,37 @@ on both.
    trends and raise typed anomalies (surge, dispersal, sustained-high,
    gathering).
 6. When something blocks the drone mid-mission, the executor escalates to the
-   agent, which makes a tactical decision (climb over / hold / divert / return
-   home / abort).
+   agent, which picks one of seven fixed actions (continue, hold, skip goal,
+   climb, divert, return home, abort). Any other answer is discarded and a
+   rule-based directive is used instead.
 7. At the end, a **report writer** synthesises a natural-language summary.
 
 The LLM is **never** in the inner control loop — it plans and makes high-level
 tactical calls; deterministic code flies the drone.
+
+## The validation gate
+
+The gate is ordinary code in `llm_agent_node` that sits between the planner and
+the executor. The model never emits coordinates or velocities. The gate applies
+three rules before a command is published on `/mission_command`:
+
+1. **Catalogue check.** A skill outside the eight in `SKILL_DEFAULTS` is
+   discarded. In the report version this rejected the command outright; in the
+   current version the command is re-planned by the rule-based parser.
+2. **Landmark fallback.** A skill that needs a landmark but arrives without a
+   known one becomes a local headcount survey (`count_people`) at the launch
+   position.
+3. **Envelope clamp.** Radius is clamped to 3 to 15 m and altitude to 4 to
+   12 m. On the real Tello, `demo_tello.launch.py` then caps the executor
+   further for indoor flight (see [Pre-flight](#pre-flight)).
+
+`abort` bypasses the gate and the mission queue and goes straight to
+`/mission_abort`. Because the gate is plain code, it can be tested with
+hand-written inputs and no model call.
+
+Known gap: in the current version, mid-mission directives are checked against
+the list of seven actions, but their numeric parameters (`delta_alt_m`,
+`hold_s`) are not yet bounded.
 
 ## Architecture at a glance
 
@@ -76,8 +117,9 @@ swapped for the real Tello with **no code changes**. The key contract topic is
 - **ROS 2 Humble** (Dockerised on Ubuntu 22.04) — everything runs in a container
 - **Gazebo Ignition Fortress** (`ros-gz`) — simulation
 - **YOLOv8** (`ultralytics`, CPU inference) — person/obstacle detection
-- **LangChain + Google Gemini** (`gemini-2.5-flash`) — mission planner + reporter
-- **ORB-SLAM3** — visual-inertial SLAM (optional, off the critical path)
+- **LangChain + Google Gemini** (`gemini-2.5-flash`) — mission planner + reporter,
+  with a deterministic keyword parser as the offline fallback
+- **ORB-SLAM3** — monocular SLAM wrapper (optional, off the critical path)
 - **openai-whisper + gTTS/pyttsx3** — optional voice I/O
 - **PyTorch CPU-only** — no GPU required
 
@@ -378,7 +420,9 @@ from the dashboard exactly like the sim. Full procedure:
 ### Pre-flight
 - Props on, **battery > 25%** (the driver refuses to arm below that), a clear
   indoor space, flat floor. The Tello launch uses a conservative envelope
-  (≤ 1.8 m altitude, ~1.9 m radius) and does local survey/hover patterns.
+  (≤ 1.8 m altitude, ≤ 1.5 m survey radius, 0.3 m/s speed cap), disables
+  landmark transits and the campus obstacle table, and does local survey/hover
+  patterns.
 
 ### 1. Enable host networking (Mac only — the drone link needs it)
 The Tello is controlled over its own Wi-Fi via UDP at `192.168.10.1`, so the
@@ -464,13 +508,19 @@ movement command**, flies the mission, and lands on completion. The
 | 2 — Simulation assets (campus world + drone) | ✅ Complete |
 | 3 — Perception (YOLO + analytics + anomalies) | ✅ Complete |
 | 4 — SLAM (ORB-SLAM3) | 🟡 Built; off critical path, runtime debug pending |
-| 5 — Navigation (closed-loop velocity control) | ✅ Implemented (Nav2 deferred) |
+| 5 — Navigation (closed-loop velocity control) | ✅ Implemented 8 June 2026 (Nav2 deferred); not yet evaluated |
 | 6 — LLM agent (planner + reporter + tactical) | ✅ Complete |
 | 7 — Voice I/O | 🟡 Wired; audio passthrough debug pending |
 
-Closed-loop autonomy (milestones 1–5) is implemented and ready for sim
-validation; real-Tello bring-up awaits hardware. See [`CLAUDE.md`](CLAUDE.md)
-and the PRD for detail.
+**Evaluation.** The version tagged `report-v0.0.1` (open-loop executor) was
+run through the nine acceptance scenarios 34 times: 25 runs in Gazebo and 9 on
+a real DJI Tello. 25 passed, a task success rate of 73.5% (Wilson 95% interval
+56.9% to 85.4%), below the 80% target. Full results and limitations are in the
+[report](https://doi.org/10.5281/zenodo.22085150).
+
+The current closed-loop version runs in Gazebo and on the real Tello through
+`demo_tello.launch.py`, but has not yet been re-run through the acceptance
+harness. See [`CLAUDE.md`](CLAUDE.md) and the PRD for detail.
 
 ---
 
